@@ -6,7 +6,6 @@ Continuously listens to USB microphone and detects fart sounds
 
 import sounddevice as sd
 import numpy as np
-import tensorflow as tf
 import csv
 import time
 from scipy import signal  # for resampling
@@ -17,7 +16,7 @@ DEVICE_SAMPLE_RATE = 48000  # typical for Google voiceHAT mic
 DURATION = 2.0  # seconds - longer window for better detection
 CHANNELS = 1
 DEVICE_ID = 1  # Use your Google voiceHAT device
-YAMNET_MODEL_PATH = 'yamnet_model'  # Local YAMNet model path
+MODEL_PATH = 'yamnet_model/yamnet.tflite'  # TensorFlow Lite model path
 CLASS_MAP_PATH = 'yamnet_model/yamnet_class_map.csv'
 DETECTION_THRESHOLD = 0.3  # Threshold for fart detection
 BLOCK_SIZE = int(DEVICE_SAMPLE_RATE * DURATION)
@@ -39,78 +38,59 @@ def load_class_map():
         print(f"Failed to load class map: {e}")
         return {}, []
 
-def load_yamnet_model():
-    """Load the YAMNet model with timeout"""
+def load_tflite_model():
+    """Load the TensorFlow Lite model"""
     try:
-        print("Loading YAMNet model... This may take a moment on Raspberry Pi...")
+        import tflite_runtime.interpreter as tflite
         
-        # Set TensorFlow to use CPU only for better compatibility
-        tf.config.set_visible_devices([], 'GPU')
+        # Load the TFLite model
+        interpreter = tflite.Interpreter(model_path=MODEL_PATH)
+        interpreter.allocate_tensors()
         
-        # Load model with timeout
-        import signal
+        # Get input and output details
+        input_details = interpreter.get_input_details()
+        output_details = interpreter.get_output_details()
         
-        def timeout_handler(signum, frame):
-            raise TimeoutError("Model loading timed out")
+        print(f"TensorFlow Lite model loaded successfully from {MODEL_PATH}")
+        print(f"Input shape: {input_details[0]['shape']}")
+        print(f"Output shape: {output_details[0]['shape']}")
         
-        # Set 30 second timeout
-        signal.signal(signal.SIGALRM, timeout_handler)
-        signal.alarm(30)
+        return interpreter, input_details, output_details
         
-        try:
-            model = tf.saved_model.load(YAMNET_MODEL_PATH)
-            signal.alarm(0)  # Cancel timeout
-            print(f"YAMNet model loaded successfully from {YAMNET_MODEL_PATH}")
-            return model
-        except TimeoutError:
-            print("Model loading timed out. YAMNet may be too large for this Raspberry Pi.")
-            print("Trying to load from TensorFlow Hub as fallback...")
-            # return load_yamnet_from_hub()
-            return create_dummy_model()
-        finally:
-            signal.alarm(0)  # Ensure timeout is cancelled
-            
     except Exception as e:
-        print(f"Failed to load YAMNet model: {e}")
+        print(f"Failed to load TensorFlow Lite model: {e}")
         print("Creating a dummy model for demonstration...")
         return create_dummy_model()
 
-def load_yamnet_from_hub():
-    """Load YAMNet from TensorFlow Hub as fallback"""
-    try:
-        import tensorflow_hub as hub
-        print("Loading YAMNet from TensorFlow Hub...")
-        model = hub.load('https://tfhub.dev/google/yamnet/1')
-        print("YAMNet loaded successfully from TensorFlow Hub")
-        return model
-    except Exception as e:
-        print(f"Failed to load from TensorFlow Hub: {e}")
-        return create_dummy_model()
-
 def create_dummy_model():
-    """Create a dummy model for demonstration when YAMNet fails to load"""
+    """Create a dummy model for demonstration when TFLite model fails to load"""
     try:
         print("Creating dummy model for demonstration...")
         
         # Create a simple model that returns random predictions
         class DummyModel:
-            def __call__(self, audio):
-                # Return dummy scores, embeddings, and spectrogram
-                batch_size = 1
-                num_classes = 521
-                num_frames = 97  # YAMNet output shape
-                
-                scores = tf.random.uniform((batch_size, num_frames, num_classes))
-                embeddings = tf.random.uniform((batch_size, num_frames, 1024))
-                spectrogram = tf.random.uniform((batch_size, num_frames, 64))
-                
-                return scores, embeddings, spectrogram
+            def __init__(self):
+                self.input_details = [{'shape': [1, 15600]}]
+                self.output_details = [{'shape': [1, 97, 521]}]
+            
+            def allocate_tensors(self):
+                pass
+            
+            def set_tensor(self, index, value):
+                pass
+            
+            def invoke(self):
+                pass
+            
+            def get_tensor(self, index):
+                # Return dummy scores
+                return np.random.random((1, 97, 521)).astype(np.float32)
         
-        return DummyModel()
+        return DummyModel(), None, None
         
     except Exception as e:
         print(f"Failed to create dummy model: {e}")
-        return None
+        return None, None, None
 
 def preprocess_audio(audio):
     """Preprocess audio for YAMNet model"""
@@ -131,24 +111,42 @@ def preprocess_audio(audio):
         audio = signal.resample(audio, num_samples)
     return audio
 
-def predict_fart(yamnet_model, audio, fart_indices):
-    """Predict if audio contains a fart using YAMNet"""
-    if yamnet_model is None:
+def predict_fart(interpreter, input_details, output_details, audio, fart_indices):
+    """Predict if audio contains a fart using TensorFlow Lite"""
+    if interpreter is None:
         # Return random prediction for demonstration
         return np.random.random()
     
     try:
-        # Run YAMNet inference
-        scores, embeddings, spectrogram = yamnet_model(audio)
-        scores_np = scores.numpy()
+        # Ensure audio is the right length (YAMNet expects ~1 second at 16kHz)
+        target_length = 15600  # YAMNet input length
+        if len(audio) != target_length:
+            if len(audio) < target_length:
+                # Pad with zeros
+                audio = np.pad(audio, (0, target_length - len(audio)))
+            else:
+                # Truncate
+                audio = audio[:target_length]
+        
+        # Reshape for model input
+        input_data = np.expand_dims(audio, axis=0).astype(np.float32)
+        
+        # Set input tensor
+        interpreter.set_tensor(input_details[0]['index'], input_data)
+        
+        # Run inference
+        interpreter.invoke()
+        
+        # Get output
+        output_data = interpreter.get_tensor(output_details[0]['index'])
         
         # Average scores across frames
-        mean_scores = np.mean(scores_np, axis=0)
+        mean_scores = np.mean(output_data, axis=1)  # Shape: (1, 521)
         
         # Check fart probability
         max_fart_score = 0.0
         for idx in fart_indices:
-            fart_score = mean_scores[idx]
+            fart_score = mean_scores[0][idx]
             max_fart_score = max(max_fart_score, fart_score)
         
         return max_fart_score
@@ -158,9 +156,9 @@ def predict_fart(yamnet_model, audio, fart_indices):
         return 0.0
 
 def main():
-    """Main detection loop using YAMNet"""
+    """Main detection loop using TensorFlow Lite"""
     print("=" * 50)
-    print("Simple Raspberry Pi Fart Detector using YAMNet")
+    print("Simple Raspberry Pi Fart Detector using TensorFlow Lite")
     print("=" * 50)
     
     # List available audio devices
@@ -176,15 +174,16 @@ def main():
     # Load class map and find fart indices
     class_map, fart_indices = load_class_map()
     
-    # Load YAMNet model
-    yamnet_model = load_yamnet_model()
+    # Load TensorFlow Lite model
+    interpreter, input_details, output_details = load_tflite_model()
     
-    if yamnet_model is None:
-        print("Failed to load YAMNet model. Exiting.")
+    if interpreter is None:
+        print("Failed to load TensorFlow Lite model. Exiting.")
         return
     
     print(f"Starting detection loop...")
-    print(f"Sample rate: {SAMPLE_RATE} Hz")
+    print(f"Device sample rate: {DEVICE_SAMPLE_RATE} Hz")
+    print(f"YAMNet sample rate: {YAMNET_SAMPLE_RATE} Hz")
     print(f"Duration: {DURATION} seconds")
     print(f"Threshold: {DETECTION_THRESHOLD}")
     print("Press Ctrl+C to stop")
@@ -206,8 +205,8 @@ def main():
                 # Preprocess audio
                 processed_audio = preprocess_audio(audio)
                 
-                # Make prediction using YAMNet
-                confidence = predict_fart(yamnet_model, processed_audio, fart_indices)
+                # Make prediction using TensorFlow Lite
+                confidence = predict_fart(interpreter, input_details, output_details, processed_audio, fart_indices)
                 
                 # Check if fart is detected
                 if confidence >= DETECTION_THRESHOLD:

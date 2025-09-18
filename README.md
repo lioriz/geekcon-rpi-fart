@@ -1,6 +1,6 @@
-# Simple Raspberry Pi Fart Detector using YAMNet
+# Simple Raspberry Pi Fart Detector using TensorFlow Lite
 
-A simple audio classification system that runs on Raspberry Pi 4 to detect fart sounds using the YAMNet pre-trained model. The system continuously listens to a USB microphone, processes audio through YAMNet, and prints detection results.
+A simple audio classification system that runs on Raspberry Pi 4 to detect fart sounds using TensorFlow Lite for optimal performance. The system continuously listens to a USB microphone, processes audio through a lightweight model, and prints detection results.
 
 ## Features
 
@@ -74,7 +74,7 @@ The `--no-deps` flag is used to avoid dependency conflicts on Raspberry Pi.
 7. **Run the detector:**
    ```bash
    source .venv/bin/activate
-   python fart_detector.py
+   python fart_detector_lite.py
    ```
 
 ## Configuration
