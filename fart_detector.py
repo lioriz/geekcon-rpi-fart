@@ -13,12 +13,15 @@ from scipy import signal  # for resampling
 # Global configuration constants
 YAMNET_SAMPLE_RATE = 16000  # Hz - YAMNet expects 16kHz
 DEVICE_SAMPLE_RATE = 48000  # typical for Google voiceHAT mic
-DURATION = 2.0  # seconds - longer window for better detection
+DURATION = 1.0  # seconds - longer window for better detection
 CHANNELS = 1
 DEVICE_ID = 1  # Use your Google voiceHAT device
 MODEL_PATH = 'yamnet_model/yamnet.tflite'  # TensorFlow Lite model path
 CLASS_MAP_PATH = 'yamnet_model/yamnet_class_map.csv'
-DETECTION_THRESHOLD = 0.3  # Threshold for fart detection
+
+# Detection settings - adjust these for better sensitivity
+DETECTION_THRESHOLD = 0.1  # Lower = more sensitive (0.05-0.3 range)
+AUDIO_LEVEL_THRESHOLD = 0.01  # Minimum audio level to show "quiet" (0.005-0.05 range)
 BLOCK_SIZE = int(DEVICE_SAMPLE_RATE * DURATION)
 
 def load_class_map():
@@ -99,9 +102,10 @@ def preprocess_audio(audio):
         audio = np.mean(audio, axis=1)
     audio = audio.astype(np.float32)
     
-    # Normalize audio (like the example)
-    if np.max(np.abs(audio)) > 0:
-        audio = audio / np.max(np.abs(audio))
+    # Normalize audio
+    rms = np.sqrt(np.mean(audio**2))
+    if rms > 0:
+        audio = audio / (rms * 20)  # scale relative to RMS, 20 is an empirical factor
     # resample from device SR → YAMNet SR
     if DEVICE_SAMPLE_RATE != YAMNET_SAMPLE_RATE:
         # Calculate resampling ratio
@@ -118,7 +122,7 @@ def predict_fart(interpreter, input_details, output_details, audio, fart_indices
         return np.random.random()
     
     try:
-        # Ensure audio is the right length (YAMNet expects ~1 second at 16kHz)
+        # Ensure audio is the right length (YAMNet expects exactly 15600 samples)
         target_length = 15600  # YAMNet input length
         if len(audio) != target_length:
             if len(audio) < target_length:
@@ -208,11 +212,18 @@ def main():
                 # Make prediction using TensorFlow Lite
                 confidence = predict_fart(interpreter, input_details, output_details, processed_audio, fart_indices)
                 
+                # Calculate audio level for debugging
+                audio_level = np.sqrt(np.mean(processed_audio**2))  # RMS level
+                
                 # Check if fart is detected
                 if confidence >= DETECTION_THRESHOLD:
-                    print(f"🚨 FART DETECTED! (confidence: {confidence:.3f})")
+                    print(f"🚨 FART DETECTED! (confidence: {confidence:.3f}, level: {audio_level:.3f})")
                 else:
-                    print(f"... quiet ({confidence:.3f})")
+                    # Only show quiet if audio level is significant
+                    if audio_level > AUDIO_LEVEL_THRESHOLD:  # Only show when there's actual sound
+                        print(f"... quiet (conf: {confidence:.3f}, level: {audio_level:.3f})")
+                    else:
+                        print(f"... silent (conf: {confidence:.3f})")
                 
     except KeyboardInterrupt:
         print("\nStopping detection...")
