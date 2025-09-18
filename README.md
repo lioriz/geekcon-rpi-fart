@@ -39,8 +39,8 @@ The `--no-deps` flag is used to avoid dependency conflicts on Raspberry Pi.
 
 1. **Install system dependencies:**
    ```bash
-   sudo apt-get update
-   sudo apt-get install python3-pip tensorflow
+   sudo apt update
+   sudo apt install python3-pip tensorflow portaudio19-dev
    ```
 
 2. **Install uv (Python package manager):**

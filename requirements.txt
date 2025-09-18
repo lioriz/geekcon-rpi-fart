@@ -9,6 +9,9 @@ sounddevice==0.5.2
 # TensorFlow (aarch64 build, no libclang)
 tensorflow-aarch64==2.16.1
 
+# TensorFlow Hub (fallback for YAMNet) - optimized for RPi4 ARM64
+tensorflow-hub==0.12.0
+
 # Core runtime deps (safe, pinned for compatibility)
 absl-py==2.3.1
 protobuf==3.20.3
