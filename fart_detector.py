@@ -14,7 +14,7 @@ import time
 SAMPLE_RATE = 16000  # Hz - YAMNet expects 16kHz
 DURATION = 2.0  # seconds - longer window for better detection
 CHANNELS = 1
-DEVICE_ID = None  # None for default device
+DEVICE_ID = 1  # Use your Google voiceHAT device
 YAMNET_MODEL_PATH = 'yamnet_model'  # Local YAMNet model path
 CLASS_MAP_PATH = 'yamnet_model/yamnet_class_map.csv'
 DETECTION_THRESHOLD = 0.3  # Threshold for fart detection
