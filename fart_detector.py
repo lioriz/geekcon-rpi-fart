@@ -128,8 +128,8 @@ def predict_fart(interpreter, input_details, output_details, audio, fart_indices
                 # Truncate
                 audio = audio[:target_length]
         
-        # Reshape for model input
-        input_data = np.expand_dims(audio, axis=0).astype(np.float32)
+        # Model expects 1D array, not 2D
+        input_data = audio.astype(np.float32)
         
         # Set input tensor
         interpreter.set_tensor(input_details[0]['index'], input_data)
@@ -140,8 +140,8 @@ def predict_fart(interpreter, input_details, output_details, audio, fart_indices
         # Get output
         output_data = interpreter.get_tensor(output_details[0]['index'])
         
-        # Average scores across frames
-        mean_scores = np.mean(output_data, axis=1)  # Shape: (1, 521)
+        # Output is already in the right shape: (1, 521)
+        mean_scores = output_data  # Shape: (1, 521)
         
         # Check fart probability
         max_fart_score = 0.0
