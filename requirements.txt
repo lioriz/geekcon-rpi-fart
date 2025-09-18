@@ -1,0 +1,4 @@
+# Simple Raspberry Pi Fart Detector Dependencies
+numpy
+sounddevice
+tensorflow
