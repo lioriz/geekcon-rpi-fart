@@ -9,16 +9,18 @@ import numpy as np
 import tensorflow as tf
 import csv
 import time
+from scipy import signal  # for resampling
 
 # Global configuration constants
-SAMPLE_RATE = 16000  # Hz - YAMNet expects 16kHz
+YAMNET_SAMPLE_RATE = 16000  # Hz - YAMNet expects 16kHz
+DEVICE_SAMPLE_RATE = 48000  # typical for Google voiceHAT mic
 DURATION = 2.0  # seconds - longer window for better detection
 CHANNELS = 1
 DEVICE_ID = 1  # Use your Google voiceHAT device
 YAMNET_MODEL_PATH = 'yamnet_model'  # Local YAMNet model path
 CLASS_MAP_PATH = 'yamnet_model/yamnet_class_map.csv'
 DETECTION_THRESHOLD = 0.3  # Threshold for fart detection
-BLOCK_SIZE = int(SAMPLE_RATE * DURATION)
+BLOCK_SIZE = int(DEVICE_SAMPLE_RATE * DURATION)
 
 def load_class_map():
     """Load YAMNet class names from CSV file"""
@@ -120,7 +122,13 @@ def preprocess_audio(audio):
     # Normalize audio (like the example)
     if np.max(np.abs(audio)) > 0:
         audio = audio / np.max(np.abs(audio))
-    
+    # resample from device SR → YAMNet SR
+    if DEVICE_SAMPLE_RATE != YAMNET_SAMPLE_RATE:
+        # Calculate resampling ratio
+        ratio = YAMNET_SAMPLE_RATE / DEVICE_SAMPLE_RATE
+        # Use scipy.signal.resample for resampling
+        num_samples = int(len(audio) * ratio)
+        audio = signal.resample(audio, num_samples)
     return audio
 
 def predict_fart(yamnet_model, audio, fart_indices):
@@ -183,12 +191,11 @@ def main():
     print()
     
     try:
-        # Use continuous stream
-        with sd.InputStream(channels=CHANNELS, 
-                          samplerate=SAMPLE_RATE, 
-                          blocksize=BLOCK_SIZE, 
-                          dtype='float32',
-                          device=DEVICE_ID) as stream:
+        with sd.InputStream(channels=CHANNELS,
+                            samplerate=DEVICE_SAMPLE_RATE,
+                            blocksize=BLOCK_SIZE,
+                            dtype='float32',
+                            device=DEVICE_ID) as stream:
             print("Listening for farts...")
             
             while True:

@@ -6,6 +6,10 @@ numpy==1.26.4
 # Audio input
 sounddevice==0.5.2
 
+# Audio processing
+librosa==0.10.1
+scipy==1.11.4
+
 # TensorFlow (aarch64 build, no libclang)
 tensorflow-aarch64==2.16.1
 
