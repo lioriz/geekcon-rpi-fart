@@ -1,4 +1,20 @@
 # Simple Raspberry Pi Fart Detector Dependencies
-numpy
-sounddevice
-tensorflow
+
+# Pin NumPy to 1.x (TF wheels aren't ready for NumPy 2.x yet)
+numpy==1.26.4
+
+# Audio input
+sounddevice==0.5.2
+
+# TensorFlow (aarch64 build, no libclang)
+tensorflow-aarch64==2.16.1
+
+# Core runtime deps (safe, pinned for compatibility)
+absl-py==2.3.1
+protobuf==3.20.3
+opt-einsum==3.4.0
+typing-extensions==4.15.0
+wrapt==1.17.3
+six==1.17.0
+gast==0.6.0
+
