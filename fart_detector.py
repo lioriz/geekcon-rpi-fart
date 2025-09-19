@@ -20,7 +20,7 @@ MODEL_PATH = 'yamnet_model/yamnet.tflite'  # TensorFlow Lite model path
 CLASS_MAP_PATH = 'yamnet_model/yamnet_class_map.csv'
 
 # Detection settings - adjust these for better sensitivity
-DETECTION_THRESHOLD = 0.01  # Lower = more sensitive (0.05-0.3 range)
+DETECTION_THRESHOLD = 0.001  # Lower = more sensitive (0.05-0.3 range)
 AUDIO_LEVEL_THRESHOLD = 0.01  # Minimum audio level to show "quiet" (0.005-0.05 range)
 BLOCK_SIZE = int(DEVICE_SAMPLE_RATE * DURATION)
 
