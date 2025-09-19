@@ -20,7 +20,7 @@ MODEL_PATH = 'yamnet_model/yamnet.tflite'  # TensorFlow Lite model path
 CLASS_MAP_PATH = 'yamnet_model/yamnet_class_map.csv'
 
 # Detection settings - adjust these for better sensitivity
-DETECTION_THRESHOLD = 0.1  # Lower = more sensitive (0.05-0.3 range)
+DETECTION_THRESHOLD = 0.01  # Lower = more sensitive (0.05-0.3 range)
 AUDIO_LEVEL_THRESHOLD = 0.01  # Minimum audio level to show "quiet" (0.005-0.05 range)
 BLOCK_SIZE = int(DEVICE_SAMPLE_RATE * DURATION)
 
@@ -102,10 +102,13 @@ def preprocess_audio(audio):
         audio = np.mean(audio, axis=1)
     audio = audio.astype(np.float32)
     
-    # Normalize audio
-    rms = np.sqrt(np.mean(audio**2))
-    if rms > 0:
-        audio = audio / (rms * 20)  # scale relative to RMS, 20 is an empirical factor
+    # # Normalize audio
+    # rms = np.sqrt(np.mean(audio**2))
+    # if rms > 0:
+    #     audio = audio / (rms * 20)  # scale relative to RMS, 20 is an empirical factor
+    # Normalize audio (less aggressive)
+    if np.max(np.abs(audio)) > 0:
+        audio = audio / np.max(np.abs(audio))  # Simple max normalization
     # resample from device SR → YAMNet SR
     if DEVICE_SAMPLE_RATE != YAMNET_SAMPLE_RATE:
         # Calculate resampling ratio
@@ -221,9 +224,11 @@ def main():
                 audio_level = np.sqrt(np.mean(processed_audio**2))  # RMS level
                 
                 # Debug: Show raw audio stats occasionally
-                if np.random.random() < 0.01:  # 1% chance to show debug info
+                if np.random.random() < 0.20:  # X% chance to show debug info
                     raw_level = np.sqrt(np.mean(audio**2))
-                    print(f"DEBUG: Raw level: {raw_level:.4f}, Processed level: {audio_level:.4f}, Max: {np.max(np.abs(processed_audio)):.4f}")
+                    raw_max = np.max(np.abs(audio))
+                    processed_max = np.max(np.abs(processed_audio))
+                    print(f"DEBUG: Raw level: {raw_level:.4f}, Raw max: {raw_max:.4f}, Processed level: {audio_level:.4f}, Processed max: {processed_max:.4f}")
                 
                 # Check if fart is detected
                 if confidence >= DETECTION_THRESHOLD:
