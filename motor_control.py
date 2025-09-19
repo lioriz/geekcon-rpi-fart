@@ -307,12 +307,15 @@ def main():
         # Test motor control
         print("Testing motor control...")
         motor.set_motors(500, -500)  # Move forward
-        time.sleep(2)
+        print("Moving forward for 3 seconds...")
+        time.sleep(3)
         
         motor.set_motors(-500, 500)  # Move backward
-        time.sleep(2)
+        print("Moving backward for 3 seconds...")
+        time.sleep(3)
         
         motor.stop_motors()  # Stop
+        print("Motors stopped")
         
         # Test encoder reading
         # print("Testing encoder reading...")
