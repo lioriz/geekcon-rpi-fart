@@ -209,7 +209,7 @@ def audio_producer(audio_queue, stop_event):
                 # Put audio in queue (non-blocking)
                 try:
                     audio_queue.put_nowait(audio)
-                    logger.info(f"🎤 Audio producer: {time.time() - start_time:.3f}s")
+                    #logger.info(f"🎤 Audio producer: {time.time() - start_time:.3f}s")
                 except queue.Full:
                     logger.warning("⚠️  Audio queue full, dropping frame")
                     
@@ -266,7 +266,7 @@ def audio_processor(thread_id, audio_queue, interpreter, input_details, output_d
             right_inference_duration = right_inference_time - right_inference_start
             
             # Log results
-            logger.info(f"🧭 {angle:+.1f}° | L: confidance-{conf_left:.3f}, level-{level_left:.3f} | R: confidance-{conf_right:.3f}, level-{level_right:.3f} | ⏱️ Total={total_time:.3f}s | Direction={direction_duration:.3f}s | Preprocess={preprocess_duration:.3f}s | L_inf={left_inference_duration:.3f}s | R_inf={right_inference_duration:.3f}s")
+            #logger.info(f"🧭 {angle:+.1f}° | L: confidance-{conf_left:.3f}, level-{level_left:.3f} | R: confidance-{conf_right:.3f}, level-{level_right:.3f} | ⏱️ Total={total_time:.3f}s | Direction={direction_duration:.3f}s | Preprocess={preprocess_duration:.3f}s | L_inf={left_inference_duration:.3f}s | R_inf={right_inference_duration:.3f}s")
             
             if max_confidence >= DETECTION_THRESHOLD:
                 # Determine direction arrow
@@ -278,8 +278,8 @@ def audio_processor(thread_id, audio_queue, interpreter, input_details, output_d
                     direction_arrow = "⬅️"  # Left
                 
                 logger.info(f"🚨🚨🚨🚨 FART DETECTED! {direction_arrow}, conf: {max_confidence:.3f}, level: {avg_level:.3f} direction: {angle:+.1f}° 🚨🚨🚨🚨")
-            else:
-                logger.info(f"... quiet (max conf: {max_confidence:.3f}, avg level: {avg_level:.3f})")
+            # else:
+                #logger.info(f"... quiet (max conf: {max_confidence:.3f}, avg level: {avg_level:.3f})")
             
             # Mark task as done only if we successfully processed an item
             audio_queue.task_done()
