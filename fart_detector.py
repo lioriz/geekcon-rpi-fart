@@ -43,13 +43,13 @@ MODEL_PATH = 'yamnet_model/yamnet.tflite'  # TensorFlow Lite model path
 CLASS_MAP_PATH = 'yamnet_model/yamnet_class_map.csv'
 
 # Detection settings - adjust these for better sensitivity
-DETECTION_THRESHOLD = 0.001  # Lower = more sensitive
+DETECTION_THRESHOLD = 0.003  # Lower = more sensitive
 MIC_DISTANCE = 0.08  # Distance between microphones in meters
 BLOCK_SIZE = int(DEVICE_SAMPLE_RATE * DURATION)
 
 # Threading settings
 AUDIO_QUEUE_SIZE = 10  # Number of audio chunks to buffer
-PROCESSING_THREADS = 2  # Number of processing threads
+PROCESSING_THREADS = 1  # Number of processing threads
 
 # Initialize logger
 logger = get_logger('fart_detector', logging.INFO)
@@ -202,12 +202,14 @@ def audio_producer(audio_queue, stop_event):
                             dtype='float32',
                             device=DEVICE_ID) as stream:
             while not stop_event.is_set():
+                start_time = time.time()
                 # Read audio block from stream (stereo)
                 audio, overflowed = stream.read(BLOCK_SIZE)
                 
                 # Put audio in queue (non-blocking)
                 try:
                     audio_queue.put_nowait(audio)
+                    logger.info(f"🎤 Audio producer: {time.time() - start_time:.3f}s")
                 except queue.Full:
                     logger.warning("⚠️  Audio queue full, dropping frame")
                     
@@ -264,8 +266,7 @@ def audio_processor(thread_id, audio_queue, interpreter, input_details, output_d
             right_inference_duration = right_inference_time - right_inference_start
             
             # Log results
-            logger.info(f"🧭 {angle:+.1f}° | L: confidance-{conf_left:.3f}, level-{level_left:.3f} | R: confidance-{conf_right:.3f}, level-{level_right:.3f} | \
-                ⏱️ Total={total_time:.3f}s | Direction={direction_duration:.3f}s | Preprocess={preprocess_duration:.3f}s | L_inf={left_inference_duration:.3f}s | R_inf={right_inference_duration:.3f}s")
+            logger.info(f"🧭 {angle:+.1f}° | L: confidance-{conf_left:.3f}, level-{level_left:.3f} | R: confidance-{conf_right:.3f}, level-{level_right:.3f} | ⏱️ Total={total_time:.3f}s | Direction={direction_duration:.3f}s | Preprocess={preprocess_duration:.3f}s | L_inf={left_inference_duration:.3f}s | R_inf={right_inference_duration:.3f}s")
             
             if max_confidence >= DETECTION_THRESHOLD:
                 # Determine direction arrow
