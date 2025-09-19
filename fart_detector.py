@@ -10,6 +10,9 @@ import csv
 import time
 from datetime import datetime
 from scipy import signal  # for resampling
+import threading
+from collections import deque
+import queue
 
 # Global configuration constants
 YAMNET_SAMPLE_RATE = 16000  # Hz - YAMNet expects 16kHz
@@ -24,6 +27,10 @@ CLASS_MAP_PATH = 'yamnet_model/yamnet_class_map.csv'
 DETECTION_THRESHOLD = 0.001  # Lower = more sensitive
 MIC_DISTANCE = 0.08  # Distance between microphones in meters
 BLOCK_SIZE = int(DEVICE_SAMPLE_RATE * DURATION)
+
+# Threading settings
+AUDIO_QUEUE_SIZE = 10  # Number of audio chunks to buffer
+PROCESSING_THREADS = 2  # Number of processing threads
 
 def load_class_map():
     """Load YAMNet class names from CSV file"""
@@ -162,6 +169,103 @@ def preprocess_audio(audio):
 
     return audio
 
+def audio_producer(audio_queue, stop_event):
+    """Producer thread: captures audio and puts it in queue"""
+    print("🎤 Audio producer started")
+    
+    try:
+        with sd.InputStream(channels=CHANNELS,
+                            samplerate=DEVICE_SAMPLE_RATE,
+                            blocksize=BLOCK_SIZE,
+                            dtype='float32',
+                            device=DEVICE_ID) as stream:
+            while not stop_event.is_set():
+                # Read audio block from stream (stereo)
+                audio, overflowed = stream.read(BLOCK_SIZE)
+                
+                # Put audio in queue (non-blocking)
+                try:
+                    audio_queue.put_nowait(audio)
+                except queue.Full:
+                    print("⚠️  Audio queue full, dropping frame")
+                    
+    except Exception as e:
+        print(f"❌ Audio producer error: {e}")
+    finally:
+        print("🎤 Audio producer stopped")
+
+def audio_processor(thread_id, audio_queue, interpreter, input_details, output_details, 
+                   fart_indices, class_map, stop_event):
+    """Consumer thread: processes audio from queue"""
+    print(f"🔧 Audio processor {thread_id} started")
+    
+    while not stop_event.is_set():
+        try:
+            # Get audio from queue (with timeout)
+            audio = audio_queue.get(timeout=1.0)
+            
+            process_start = time.time()
+            
+            # Split into left and right channels
+            left_channel = audio[:, 0]   # Left microphone
+            right_channel = audio[:, 1]  # Right microphone
+            
+            # Estimate direction of arrival
+            angle, delay = estimate_direction(left_channel, right_channel, DEVICE_SAMPLE_RATE, MIC_DISTANCE)
+            
+            # Process both channels
+            processed_left = preprocess_audio(left_channel)
+            processed_right = preprocess_audio(right_channel)
+            
+            # Run inference on both channels
+            left_inference_start = time.time()
+            conf_left = predict_fart(interpreter, input_details, output_details, processed_left, fart_indices, class_map)
+            left_inference_time = time.time()
+            
+            right_inference_start = time.time()
+            conf_right = predict_fart(interpreter, input_details, output_details, processed_right, fart_indices, class_map)
+            right_inference_time = time.time()
+            
+            # Calculate levels
+            level_left = np.sqrt(np.mean(processed_left**2))
+            level_right = np.sqrt(np.mean(processed_right**2))
+            
+            # Detection logic
+            max_confidence = max(conf_left, conf_right)
+            avg_level = (level_left + level_right) / 2
+            
+            # Timing analysis
+            total_time = time.time() - process_start
+            left_inference_duration = left_inference_time - left_inference_start
+            right_inference_duration = right_inference_time - right_inference_start
+            
+            # Print results
+            print(f"🧭 {angle:+.1f}° | L: confidance-{conf_left:.3f}, level-{level_left:.3f} | R: confidance-{conf_right:.3f}, level-{level_right:.3f}. \n \
+                ⏱️  T{thread_id}: Total={total_time:.3f}s | L_inf={left_inference_duration:.3f}s | R_inf={right_inference_duration:.3f}s")
+            
+            if max_confidence >= DETECTION_THRESHOLD:
+                # Determine direction arrow
+                if abs(angle) < 10:
+                    direction_arrow = "⬆️"  # Front
+                elif angle > 0:
+                    direction_arrow = "➡️"  # Right
+                else:
+                    direction_arrow = "⬅️"  # Left
+                
+                print(f"🚨🚨🚨🚨 FART DETECTED! {direction_arrow}, conf: {max_confidence:.3f}, level: {avg_level:.3f} direction: {angle:+.1f}° 🚨🚨🚨🚨")
+            else:
+                print(f"... quiet (max conf: {max_confidence:.3f}, avg level: {avg_level:.3f})")
+
+        except queue.Empty:
+            print(f"Timeoute, time: {datetime.now().strftime('%H:%M:%S.%f')[:-3]}")
+            continue  # Timeout, check stop_event
+        except Exception as e:
+            print(f"❌ Processor {thread_id} error: {e}")
+        finally:
+            audio_queue.task_done()
+    
+    print(f"🔧 Audio processor {thread_id} stopped")
+
 def predict_fart(interpreter, input_details, output_details, audio, fart_indices, class_map):
     """Predict if audio contains a fart using TensorFlow Lite"""
     if interpreter is None:
@@ -217,9 +321,9 @@ def predict_fart(interpreter, input_details, output_details, audio, fart_indices
         return 0.0
 
 def main():
-    """Main detection loop using TensorFlow Lite"""
+    """Main detection loop using multi-threaded TensorFlow Lite"""
     print("=" * 50)
-    print("Simple Raspberry Pi Fart Detector using TensorFlow Lite")
+    print("Multi-threaded Raspberry Pi Fart Detector")
     print("=" * 50)
     
     # List available audio devices
@@ -242,89 +346,58 @@ def main():
         print("Failed to load TensorFlow Lite model. Exiting.")
         return
     
-    print(f"Starting detection loop...")
+    print(f"Starting multi-threaded detection...")
     print(f"Device sample rate: {DEVICE_SAMPLE_RATE} Hz")
     print(f"YAMNet sample rate: {YAMNET_SAMPLE_RATE} Hz")
     print(f"Duration: {DURATION} seconds")
     print(f"Threshold: {DETECTION_THRESHOLD}")
+    print(f"Processing threads: {PROCESSING_THREADS}")
     print("Press Ctrl+C to stop")
     
+    # Create shared resources
+    audio_queue = queue.Queue(maxsize=AUDIO_QUEUE_SIZE)
+    stop_event = threading.Event()
+    
+    # Start producer thread (audio capture)
+    producer_thread = threading.Thread(
+        target=audio_producer,
+        args=(audio_queue, stop_event),
+        name="AudioProducer"
+    )
+    producer_thread.start()
+    
+    # Start consumer threads (audio processing)
+    processor_threads = []
+    for i in range(PROCESSING_THREADS):
+        thread = threading.Thread(
+            target=audio_processor,
+            args=(i+1, audio_queue, interpreter, input_details, output_details, 
+                  fart_indices, class_map, stop_event),
+            name=f"AudioProcessor-{i+1}"
+        )
+        thread.start()
+        processor_threads.append(thread)
+    
     try:
-        with sd.InputStream(channels=CHANNELS,
-                            samplerate=DEVICE_SAMPLE_RATE,
-                            blocksize=BLOCK_SIZE,
-                            dtype='float32',
-                            device=DEVICE_ID) as stream:
-            print("Listening for farts...")
+        print("🎤 All threads started, listening for farts...")
+        # Keep main thread alive
+        while True:
+            time.sleep(0.1)
             
-            while True:
-                cycle_start = time.time()
-                
-                # Read audio block from stream (stereo)
-                audio, overflowed = stream.read(BLOCK_SIZE)
-                audio_time = time.time()
-                
-                # Split into left and right channels
-                left_channel = audio[:, 0]   # Left microphone
-                right_channel = audio[:, 1]  # Right microphone
-                
-                # Estimate direction of arrival
-                angle, delay = estimate_direction(left_channel, right_channel, DEVICE_SAMPLE_RATE, MIC_DISTANCE)
-                direction_time = time.time()
-                
-                print(f"Time: {datetime.now().strftime('%Y-%m-%d %H:%M:%S.%f')}")
-                print(f"🧭 Direction: {angle:+.1f}° (delay: {delay*1e6:.1f} µs)")
-                
-                # Process LEFT channel
-                print("🔴 LEFT MICROPHONE:")
-                processed_left = preprocess_audio(left_channel)
-                left_inference_start = time.time()
-                conf_left = predict_fart(interpreter, input_details, output_details, processed_left, fart_indices, class_map)
-                left_inference_time = time.time()
-                level_left = np.sqrt(np.mean(processed_left**2))
-                
-                # Process RIGHT channel  
-                print("🔵 RIGHT MICROPHONE:")
-                processed_right = preprocess_audio(right_channel)
-                right_inference_start = time.time()
-                conf_right = predict_fart(interpreter, input_details, output_details, processed_right, fart_indices, class_map)
-                right_inference_time = time.time()
-                level_right = np.sqrt(np.mean(processed_right**2))
-                
-                # Combined detection results
-                print(f"📊 L: conf={conf_left:.3f}, level={level_left:.3f}, R: conf={conf_right:.3f}, level={level_right:.3f}")
-                
-                # Detection logic - either mic can detect
-                max_confidence = max(conf_left, conf_right)
-                avg_level = (level_left + level_right) / 2
-                
-                # Timing analysis
-                total_time = time.time() - cycle_start
-                audio_duration = audio_time - cycle_start
-                direction_duration = direction_time - audio_time
-                left_inference_duration = left_inference_time - left_inference_start
-                right_inference_duration = right_inference_time - right_inference_start
-                
-                print(f"⏱️  TIMING: Total={total_time:.3f}s | Audio={audio_duration:.3f}s | Dir={direction_duration:.3f}s | L_inf={left_inference_duration:.3f}s | R_inf={right_inference_duration:.3f}s")
-                
-                if max_confidence >= DETECTION_THRESHOLD:
-                    # Determine direction arrow
-                    if abs(angle) < 10:
-                        direction_arrow = "⬆️"  # Front
-                    elif angle > 0:
-                        direction_arrow = "➡️"  # Right
-                    else:
-                        direction_arrow = "⬅️"  # Left
-                    
-                    print(f"🚨🚨🚨🚨 FART DETECTED! {direction_arrow}, conf: {max_confidence:.3f}, level: {avg_level:.3f} direction: {angle:+.1f}° 🚨🚨🚨🚨")
-                else:
-                    print(f"... quiet (max conf: {max_confidence:.3f}, avg level: {avg_level:.3f})")
-                print("=" * 60)
-                
     except KeyboardInterrupt:
-        print("\nStopping detection...")
+        print("\n🛑 Stopping all threads...")
+        stop_event.set()
+        
+        # Wait for threads to finish
+        producer_thread.join(timeout=2)
+        for thread in processor_threads:
+            thread.join(timeout=2)
+        
+        print("✅ All threads stopped")
+        
     except Exception as e:
-        print(f"Error: {e}")
+        print(f"❌ Error: {e}")
+        stop_event.set()
 
 if __name__ == "__main__":
     main()
