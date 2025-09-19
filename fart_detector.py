@@ -331,7 +331,7 @@ def predict_fart(interpreter, input_details, output_details, audio, fart_indices
         scores = mean_scores[0]  # Shape: (521,)
         top_indices = np.argsort(scores)[-top_predictions:][::-1]  # Top, highest first
         
-        logger.info(f"Top {top_predictions} ({mic_id}): " + ", ".join([f"{class_map.get(idx, f'Unknown_{idx}')}: {scores[idx]:.4f}" for idx in top_indices]))
+        #logger.info(f"Top {top_predictions} ({mic_id}): " + ", ".join([f"{class_map.get(idx, f'Unknown_{idx}')}: {scores[idx]:.4f}" for idx in top_indices]))
         
         # Check fart probability
         max_fart_score = 0.0
@@ -339,7 +339,7 @@ def predict_fart(interpreter, input_details, output_details, audio, fart_indices
             fart_score = mean_scores[0][idx]
             if fart_score > 0.0:
                 class_name = class_map.get(idx, f"Unknown_{idx}")
-                logger.info(f"💩💨 Fart detected: \"{class_name}\", with score: {fart_score:.4f} 💩💨")
+                logger.info(f"💩💨 ({mic_id}): fart detected: \"{class_name}\", with score: {fart_score:.4f} 💩💨")
             max_fart_score = max(max_fart_score, fart_score)
         
         return max_fart_score
