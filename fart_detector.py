@@ -219,14 +219,17 @@ def recording_saver(save_queue, stop_event):
                 logger.info(f"💾 Saved {reason} recording: {filename}")
             else:
                 logger.error(f"❌ Failed to save {reason} recording: {filename}")
+            
+            # Mark task as done only if we successfully processed an item
+            save_queue.task_done()
                 
         except queue.Empty:
             continue  # Timeout, check stop_event
         except Exception as e:
             logger.error(f"❌ Recording saver error: {e}")
-        finally:
-            if 'recording_data' in locals():
-                save_queue.task_done()
+            # Mark task as done even if processing failed
+            save_queue.task_done()
+        # Only call task_done() if we actually got an item from the queue
     
     logger.info("💾 Recording saver stopped")
 
