@@ -14,7 +14,7 @@ from scipy import signal  # for resampling
 YAMNET_SAMPLE_RATE = 16000  # Hz - YAMNet expects 16kHz
 DEVICE_SAMPLE_RATE = 48000  # typical for Google voiceHAT mic
 DURATION = 1.0  # seconds - longer window for better detection
-CHANNELS = 1
+CHANNELS = 2  # Stereo - use both microphones
 DEVICE_ID = 1  # Use your Google voiceHAT device
 MODEL_PATH = 'yamnet_model/yamnet.tflite'  # TensorFlow Lite model path
 CLASS_MAP_PATH = 'yamnet_model/yamnet_class_map.csv'
@@ -162,7 +162,7 @@ def predict_fart(interpreter, input_details, output_details, audio, fart_indices
         mean_scores = output_data  # Shape: (1, 521)
         
         # Get top predictions with names
-        top_predictions = 3
+        top_predictions = 2
         scores = mean_scores[0]  # Shape: (521,)
         top_indices = np.argsort(scores)[-top_predictions:][::-1]  # Top, highest first
         
@@ -235,24 +235,44 @@ def main():
             print("Listening for farts...")
             
             while True:
-                # Read audio block from stream
+                # Read audio block from stream (stereo)
                 audio, overflowed = stream.read(BLOCK_SIZE)
-                audio = audio.flatten()
                 
-                # Preprocess audio
-                processed_audio = preprocess_audio(audio)
+                # Split into left and right channels
+                left_channel = audio[:, 0]   # Left microphone
+                right_channel = audio[:, 1]  # Right microphone
                 
-                # Make prediction using TensorFlow Lite
-                confidence = predict_fart(interpreter, input_details, output_details, processed_audio, fart_indices, class_map)
+                print("=" * 60)
+                print("🎤 STEREO DETECTION - Both Microphones")
+                print("=" * 60)
                 
-                # Calculate audio level for debugging
-                audio_level = np.sqrt(np.mean(processed_audio**2))  # RMS level
+                # Process LEFT channel
+                print("🔴 LEFT MICROPHONE:")
+                processed_left = preprocess_audio(left_channel)
+                conf_left = predict_fart(interpreter, input_details, output_details, processed_left, fart_indices, class_map)
+                level_left = np.sqrt(np.mean(processed_left**2))
                 
-                # Check if fart is detected
-                if confidence >= DETECTION_THRESHOLD:
-                    print(f"🚨🚨🚨🚨 FART DETECTED! (confidence: {confidence:.3f}, level: {audio_level:.3f})🚨🚨🚨🚨")
+                # Process RIGHT channel  
+                print("🔵 RIGHT MICROPHONE:")
+                processed_right = preprocess_audio(right_channel)
+                conf_right = predict_fart(interpreter, input_details, output_details, processed_right, fart_indices, class_map)
+                level_right = np.sqrt(np.mean(processed_right**2))
+                
+                # Combined detection results
+                print("=" * 60)
+                print("📊 COMBINED RESULTS:")
+                print(f"Left:  conf={conf_left:.3f}, level={level_left:.3f}")
+                print(f"Right: conf={conf_right:.3f}, level={level_right:.3f}")
+                
+                # Detection logic - either mic can detect
+                max_confidence = max(conf_left, conf_right)
+                avg_level = (level_left + level_right) / 2
+                
+                if max_confidence >= DETECTION_THRESHOLD:
+                    print(f"🚨🚨🚨🚨 FART DETECTED! (max conf: {max_confidence:.3f}, avg level: {avg_level:.3f})🚨🚨🚨🚨")
                 else:
-                    print(f"... quiet (conf: {confidence:.3f}, level: {audio_level:.3f})")
+                    print(f"... quiet (max conf: {max_confidence:.3f}, avg level: {avg_level:.3f})")
+                print("=" * 60)
                 
     except KeyboardInterrupt:
         print("\nStopping detection...")
