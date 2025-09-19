@@ -106,9 +106,14 @@ def preprocess_audio(audio):
     # rms = np.sqrt(np.mean(audio**2))
     # if rms > 0:
     #     audio = audio / (rms * 20)  # scale relative to RMS, 20 is an empirical factor
-    # Normalize audio (less aggressive)
-    if np.max(np.abs(audio)) > 0:
-        audio = audio / np.max(np.abs(audio))  # Simple max normalization
+    # # Normalize audio (less aggressive)
+    # if np.max(np.abs(audio)) > 0:
+    #     audio = audio / np.max(np.abs(audio))  # Simple max normalization
+    # Don't normalize - let the model handle raw audio levels
+    # This preserves the dynamic range needed for detection
+    
+    # Apply gentle volume boost to make sounds more detectable
+    audio = audio * 2.0  # 2x volume boost
     # resample from device SR → YAMNet SR
     if DEVICE_SAMPLE_RATE != YAMNET_SAMPLE_RATE:
         # Calculate resampling ratio
