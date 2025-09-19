@@ -54,8 +54,8 @@ AUDIO_QUEUE_SIZE = 10  # Number of audio chunks to buffer
 PROCESSING_THREADS = 1  # Number of processing threads
 
 # Recording save settings
+SAVE_RECORDINGS = False  # Enable/disable recording save feature
 SAVE_EVERY_N_RECORDINGS = 10  # Save every 10th recording
-SAVE_DETECTED_RECORDINGS = True  # Save all detected farts
 RECORDINGS_DIR = "recordings"
 
 # Initialize logger
@@ -332,13 +332,7 @@ def audio_processor(audio_queue, save_queue, interpreter, input_details, output_
             # Log results
             #logger.info(f"🧭 {angle:+.1f}° | L: confidance-{conf_left:.3f}, level-{level_left:.3f} | R: confidance-{conf_right:.3f}, level-{level_right:.3f} | ⏱️ Total={total_time:.3f}s | Direction={direction_duration:.3f}s | Preprocess={preprocess_duration:.3f}s | L_inf={left_inference_duration:.3f}s | R_inf={right_inference_duration:.3f}s")
             
-            # Increment recording counter
-            recording_counter += 1
-            
-            # Check if we should save this recording
-            should_save = False
-            save_reason = ""
-            
+            # Detection logic (always runs)
             if max_confidence >= DETECTION_THRESHOLD:
                 # Determine direction arrow
                 if abs(angle) < 10:
@@ -349,34 +343,40 @@ def audio_processor(audio_queue, save_queue, interpreter, input_details, output_
                     direction_arrow = "⬅️"  # Left
                 
                 logger.info(f"🚨🚨🚨🚨 FART DETECTED! {direction_arrow}, conf: {max_confidence:.3f}, level: {avg_level:.3f} direction: {angle:+.1f}° 🚨🚨🚨🚨")
-                
-                # Save detected fart
-                if SAVE_DETECTED_RECORDINGS:
-                    should_save = True
-                    save_reason = "fart_detected"
-            elif recording_counter % SAVE_EVERY_N_RECORDINGS == 0:
-                # Save every Nth recording
-                should_save = True
-                save_reason = f"every_{SAVE_EVERY_N_RECORDINGS}"
-            
-            # Queue recording for saving if needed
-            if should_save:
-                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")[:-3]
-                filename = f"{RECORDINGS_DIR}/{save_reason}_{timestamp}.wav"
-                
-                try:
-                    save_queue.put_nowait({
-                        'audio': audio,
-                        'filename': filename,
-                        'sample_rate': DEVICE_SAMPLE_RATE,
-                        'reason': save_reason
-                    })
-                    logger.info(f"💾 Queued {save_reason} recording: {filename}")
-                except queue.Full:
-                    logger.warning("⚠️ Save queue full, dropping recording")
-            
             # else:
                 #logger.info(f"... quiet (max conf: {max_confidence:.3f}, avg level: {avg_level:.3f})")
+            
+            if SAVE_RECORDINGS:
+                # Increment recording counter
+                recording_counter += 1
+                # Check if we should save this recording
+                should_save = False
+                save_reason = ""
+                if max_confidence >= DETECTION_THRESHOLD:
+                    # Save detected fart
+                    should_save = True
+                    save_reason = "fart_detected"
+                elif recording_counter % SAVE_EVERY_N_RECORDINGS == 0:
+                    # Save every Nth recording
+                    should_save = True
+                    save_reason = f"every_{SAVE_EVERY_N_RECORDINGS}"
+            
+                # Queue recording for saving if needed
+                if should_save:
+                    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")[:-3]
+                    filename = f"{RECORDINGS_DIR}/{save_reason}_{timestamp}.wav"
+                    
+                    try:
+                        save_queue.put_nowait({
+                            'audio': audio,
+                            'filename': filename,
+                            'sample_rate': DEVICE_SAMPLE_RATE,
+                            'reason': save_reason
+                        })
+                        logger.info(f"💾 Queued {save_reason} recording: {filename}")
+                    except queue.Full:
+                        logger.warning("⚠️ Save queue full, dropping recording")
+            
             
             # Mark task as done only if we successfully processed an item
             audio_queue.task_done()
@@ -492,13 +492,15 @@ def main():
     )
     producer_thread.start()
     
-    # Start recording saver thread
-    saver_thread = threading.Thread(
-        target=recording_saver,
-        args=(save_queue, stop_event),
-        name="💾RecordingSaver"
-    )
-    saver_thread.start()
+    # Start recording saver thread (only if saving is enabled)
+    saver_thread = None
+    if SAVE_RECORDINGS:
+        saver_thread = threading.Thread(
+            target=recording_saver,
+            args=(save_queue, stop_event),
+            name="💾RecordingSaver"
+        )
+        saver_thread.start()
     
     # Start consumer threads (audio processing)
     processor_threads = []
@@ -526,7 +528,8 @@ def main():
         producer_thread.join(timeout=2)
         for thread in processor_threads:
             thread.join(timeout=2)
-        saver_thread.join(timeout=2)
+        if saver_thread:
+            saver_thread.join(timeout=2)
         
         logger.info("✅ All threads stopped")
         
