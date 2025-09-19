@@ -20,7 +20,7 @@ MODEL_PATH = 'yamnet_model/yamnet.tflite'  # TensorFlow Lite model path
 CLASS_MAP_PATH = 'yamnet_model/yamnet_class_map.csv'
 
 # Detection settings - adjust these for better sensitivity
-DETECTION_THRESHOLD = 0.001  # Lower = more sensitive (0.05-0.3 range)
+DETECTION_THRESHOLD = 0.001  # Lower = more sensitive
 MIC_DISTANCE = 0.08  # Distance between microphones in meters
 BLOCK_SIZE = int(DEVICE_SAMPLE_RATE * DURATION)
 
@@ -190,11 +190,7 @@ def predict_fart(interpreter, input_details, output_details, audio, fart_indices
         scores = mean_scores[0]  # Shape: (521,)
         top_indices = np.argsort(scores)[-top_predictions:][::-1]  # Top, highest first
         
-        print(f"Top {top_predictions} predictions:")
-        for i, idx in enumerate(top_indices):
-            score = scores[idx]
-            class_name = class_map.get(idx, f"Unknown_{idx}")
-            print(f"  {i+1}. {class_name}: {score:.4f}")
+        print(f"Top {top_predictions}: " + ", ".join([f"{class_map.get(idx, f'Unknown_{idx}')}: {scores[idx]:.4f}" for idx in top_indices]))
         
         # Check fart probability
         max_fart_score = 0.0
@@ -269,10 +265,7 @@ def main():
                 # Estimate direction of arrival
                 angle, delay = estimate_direction(left_channel, right_channel, DEVICE_SAMPLE_RATE, MIC_DISTANCE)
                 
-                print("=" * 60)
-                print("🎤 STEREO DETECTION - Both Microphones")
                 print(f"🧭 Direction: {angle:+.1f}° (delay: {delay*1e6:.1f} µs)")
-                print("=" * 60)
                 
                 # Process LEFT channel
                 print("🔴 LEFT MICROPHONE:")
@@ -287,10 +280,7 @@ def main():
                 level_right = np.sqrt(np.mean(processed_right**2))
                 
                 # Combined detection results
-                print("=" * 60)
-                print("📊 COMBINED RESULTS:")
-                print(f"Left:  conf={conf_left:.3f}, level={level_left:.3f}")
-                print(f"Right: conf={conf_right:.3f}, level={level_right:.3f}")
+                print(f"📊 L: conf={conf_left:.3f}, level={level_left:.3f}, R: conf={conf_right:.3f}, level={level_right:.3f}")
                 
                 # Detection logic - either mic can detect
                 max_confidence = max(conf_left, conf_right)
@@ -305,10 +295,7 @@ def main():
                     else:
                         direction_arrow = "⬅️"  # Left
                     
-                    print(f"🚨🚨🚨🚨 FART DETECTED! {direction_arrow}")
-                    print(f"   Confidence: {max_confidence:.3f}, Level: {avg_level:.3f}")
-                    print(f"   Direction: {angle:+.1f}° from center")
-                    print(f"🚨🚨🚨🚨")
+                    print(f"🚨🚨🚨🚨 FART DETECTED! {direction_arrow}, conf: {max_confidence:.3f}, level: {avg_level:.3f} direction: {angle:+.1f}° 🚨🚨🚨🚨")
                 else:
                     print(f"... quiet (max conf: {max_confidence:.3f}, avg level: {avg_level:.3f})")
                 print("=" * 60)
