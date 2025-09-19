@@ -46,48 +46,28 @@ def load_tflite_model():
     """Load the TensorFlow Lite model with XNNPACK optimization"""
     try:
         import tflite_runtime.interpreter as tflite
-        
-        # Load the TFLite model with XNNPACK delegate for better performance
+
+        # XNNPACK is built-in; enable by setting num_threads
         interpreter = tflite.Interpreter(
             model_path=MODEL_PATH,
-            experimental_delegates=[
-                tflite.load_delegate('libxnnpack_delegate.so')
-            ]
+            num_threads=4  # Use all 4 cores of Raspberry Pi 4
         )
         interpreter.allocate_tensors()
-        
-        # Get input and output details
+
         input_details = interpreter.get_input_details()
         output_details = interpreter.get_output_details()
-        
+
         print(f"TensorFlow Lite model loaded successfully from {MODEL_PATH}")
-        print(f"XNNPACK delegate enabled for better performance")
+        print(f"XNNPACK optimization enabled (threads=4)")
         print(f"Input shape: {input_details[0]['shape']}")
         print(f"Output shape: {output_details[0]['shape']}")
-        
+
         return interpreter, input_details, output_details
-        
+
     except Exception as e:
-        print(f"Failed to load TensorFlow Lite model with XNNPACK: {e}")
-        print("Trying without XNNPACK delegate...")
-        try:
-            # Fallback to regular TFLite without delegate
-            interpreter = tflite.Interpreter(model_path=MODEL_PATH)
-            interpreter.allocate_tensors()
-            
-            input_details = interpreter.get_input_details()
-            output_details = interpreter.get_output_details()
-            
-            print(f"TensorFlow Lite model loaded (without XNNPACK) from {MODEL_PATH}")
-            print(f"Input shape: {input_details[0]['shape']}")
-            print(f"Output shape: {output_details[0]['shape']}")
-            
-            return interpreter, input_details, output_details
-            
-        except Exception as e2:
-            print(f"Failed to load TensorFlow Lite model: {e2}")
-            print("Creating a dummy model for demonstration...")
-            return create_dummy_model()
+        print(f"Failed to load TensorFlow Lite model: {e}")
+        print("Creating a dummy model for demonstration...")
+        return create_dummy_model()
 
 def create_dummy_model():
     """Create a dummy model for demonstration when TFLite model fails to load"""
