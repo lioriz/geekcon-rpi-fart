@@ -226,15 +226,15 @@ def audio_processor(thread_id, audio_queue, interpreter, input_details, output_d
             # Get audio from queue (with timeout)
             audio = audio_queue.get(timeout=1.0)
             
-            process_start = time.time()
-            
             # Split into left and right channels
             left_channel = audio[:, 0]   # Left microphone
             right_channel = audio[:, 1]  # Right microphone
             
+            direction_start = time.time()
             # Estimate direction of arrival
             angle, delay = estimate_direction(left_channel, right_channel, DEVICE_SAMPLE_RATE, MIC_DISTANCE)
             
+            preprocess_start = time.time()
             # Process both channels
             processed_left = preprocess_audio(left_channel)
             processed_right = preprocess_audio(right_channel)
@@ -257,13 +257,15 @@ def audio_processor(thread_id, audio_queue, interpreter, input_details, output_d
             avg_level = (level_left + level_right) / 2
             
             # Timing analysis
-            total_time = time.time() - process_start
+            total_time = time.time() - direction_start
+            direction_duration = preprocess_start - direction_start
+            preprocess_duration = left_inference_start - preprocess_start
             left_inference_duration = left_inference_time - left_inference_start
             right_inference_duration = right_inference_time - right_inference_start
             
             # Log results
-            logger.info(f"🧭 {angle:+.1f}° | L: confidance-{conf_left:.3f}, level-{level_left:.3f} | R: confidance-{conf_right:.3f}, level-{level_right:.3f}. \n \
-                ⏱️  Total={total_time:.3f}s | L_inf={left_inference_duration:.3f}s | R_inf={right_inference_duration:.3f}s")
+            logger.info(f"🧭 {angle:+.1f}° | L: confidance-{conf_left:.3f}, level-{level_left:.3f} | R: confidance-{conf_right:.3f}, level-{level_right:.3f} | \
+                ⏱️ Total={total_time:.3f}s | Direction={direction_duration:.3f}s | Preprocess={preprocess_duration:.3f}s | L_inf={left_inference_duration:.3f}s | R_inf={right_inference_duration:.3f}s")
             
             if max_confidence >= DETECTION_THRESHOLD:
                 # Determine direction arrow
