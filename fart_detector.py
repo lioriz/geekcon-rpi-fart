@@ -390,7 +390,7 @@ def main():
     producer_thread = threading.Thread(
         target=audio_producer,
         args=(audio_queue, stop_event),
-        name="AudioProducer"
+        name="🎤AudioCapture"
     )
     producer_thread.start()
     
@@ -401,7 +401,7 @@ def main():
             target=audio_processor,
             args=(i+1, audio_queue, interpreter, input_details, output_details, 
                   fart_indices, class_map, stop_event),
-            name=f"AudioProcessor-{i+1}"
+            name=f"🔧AudioProcess-{i+1}"
         )
         thread.start()
         processor_threads.append(thread)
