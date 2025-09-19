@@ -13,6 +13,25 @@ from scipy import signal  # for resampling
 import threading
 from collections import deque
 import queue
+import logging
+
+LOGGER_DEFAULT_FORMATTER = logging.Formatter('%(asctime)s<%(threadName)s>%(levelname)s-%(message)s')
+
+def get_base_logger(name):
+    logger = logging.getLogger(name)
+    if logger.handlers:
+        for handler in logger.handlers:
+            logger.removeHandler(handler)
+    return logger
+
+def get_logger(name, level=logging.INFO):
+    logger = get_base_logger(name)
+    stream_handler = logging.StreamHandler()
+    stream_handler.setFormatter(LOGGER_DEFAULT_FORMATTER)
+    logger.setLevel(level)
+    logger.addHandler(stream_handler)
+    logger.propagate = False
+    return logger
 
 # Global configuration constants
 YAMNET_SAMPLE_RATE = 16000  # Hz - YAMNet expects 16kHz
@@ -32,6 +51,9 @@ BLOCK_SIZE = int(DEVICE_SAMPLE_RATE * DURATION)
 AUDIO_QUEUE_SIZE = 10  # Number of audio chunks to buffer
 PROCESSING_THREADS = 2  # Number of processing threads
 
+# Initialize logger
+logger = get_logger('fart_detector', logging.INFO)
+
 def load_class_map():
     """Load YAMNet class names from CSV file"""
     try:
@@ -43,10 +65,10 @@ def load_class_map():
         
         # Find fart class indices
         fart_indices = [i for i, name in class_map.items() if 'fart' in name.lower()]
-        print(f"Fart class indices: {fart_indices}")
+        logger.info(f"Fart class indices: {fart_indices}")
         return class_map, fart_indices
     except Exception as e:
-        print(f"Failed to load class map: {e}")
+        logger.error(f"Failed to load class map: {e}")
         return {}, []
 
 def load_tflite_model():
@@ -64,22 +86,22 @@ def load_tflite_model():
         input_details = interpreter.get_input_details()
         output_details = interpreter.get_output_details()
 
-        print(f"TensorFlow Lite model loaded successfully from {MODEL_PATH}")
-        print(f"XNNPACK optimization enabled (threads=4)")
-        print(f"Input shape: {input_details[0]['shape']}")
-        print(f"Output shape: {output_details[0]['shape']}")
-
+        logger.info(f"TensorFlow Lite model loaded successfully from {MODEL_PATH}")
+        logger.info(f"XNNPACK optimization enabled (threads=4)")
+        logger.info(f"Input shape: {input_details[0]['shape']}")
+        logger.info(f"Output shape: {output_details[0]['shape']}")
+        
         return interpreter, input_details, output_details
-
+        
     except Exception as e:
-        print(f"Failed to load TensorFlow Lite model: {e}")
-        print("Creating a dummy model for demonstration...")
+        logger.error(f"Failed to load TensorFlow Lite model: {e}")
+        logger.warning("Creating a dummy model for demonstration...")
         return create_dummy_model()
 
 def create_dummy_model():
     """Create a dummy model for demonstration when TFLite model fails to load"""
     try:
-        print("Creating dummy model for demonstration...")
+        logger.warning("Creating dummy model for demonstration...")
         
         # Create a simple model that returns random predictions
         class DummyModel:
@@ -103,7 +125,7 @@ def create_dummy_model():
         return DummyModel(), None, None
         
     except Exception as e:
-        print(f"Failed to create dummy model: {e}")
+        logger.error(f"Failed to create dummy model: {e}")
         return None, None, None
 
 def estimate_direction(left, right, samplerate, mic_distance=0.08):
@@ -171,7 +193,7 @@ def preprocess_audio(audio):
 
 def audio_producer(audio_queue, stop_event):
     """Producer thread: captures audio and puts it in queue"""
-    print("🎤 Audio producer started")
+    logger.info("🎤 Audio producer started")
     
     try:
         with sd.InputStream(channels=CHANNELS,
@@ -187,17 +209,17 @@ def audio_producer(audio_queue, stop_event):
                 try:
                     audio_queue.put_nowait(audio)
                 except queue.Full:
-                    print("⚠️  Audio queue full, dropping frame")
+                    logger.warning("⚠️  Audio queue full, dropping frame")
                     
     except Exception as e:
-        print(f"❌ Audio producer error: {e}")
+        logger.error(f"❌ Audio producer error: {e}")
     finally:
-        print("🎤 Audio producer stopped")
+        logger.info("🎤 Audio producer stopped")
 
 def audio_processor(thread_id, audio_queue, interpreter, input_details, output_details, 
                    fart_indices, class_map, stop_event):
     """Consumer thread: processes audio from queue"""
-    print(f"🔧 Audio processor {thread_id} started")
+    logger.info(f"🔧 Audio processor started")
     
     while not stop_event.is_set():
         try:
@@ -239,9 +261,9 @@ def audio_processor(thread_id, audio_queue, interpreter, input_details, output_d
             left_inference_duration = left_inference_time - left_inference_start
             right_inference_duration = right_inference_time - right_inference_start
             
-            # Print results
-            print(f"🧭 {angle:+.1f}° | L: confidance-{conf_left:.3f}, level-{level_left:.3f} | R: confidance-{conf_right:.3f}, level-{level_right:.3f}. \n \
-                ⏱️  T{thread_id}: Total={total_time:.3f}s | L_inf={left_inference_duration:.3f}s | R_inf={right_inference_duration:.3f}s")
+            # Log results
+            logger.info(f"🧭 {angle:+.1f}° | L: confidance-{conf_left:.3f}, level-{level_left:.3f} | R: confidance-{conf_right:.3f}, level-{level_right:.3f}. \n \
+                ⏱️  Total={total_time:.3f}s | L_inf={left_inference_duration:.3f}s | R_inf={right_inference_duration:.3f}s")
             
             if max_confidence >= DETECTION_THRESHOLD:
                 # Determine direction arrow
@@ -252,19 +274,22 @@ def audio_processor(thread_id, audio_queue, interpreter, input_details, output_d
                 else:
                     direction_arrow = "⬅️"  # Left
                 
-                print(f"🚨🚨🚨🚨 FART DETECTED! {direction_arrow}, conf: {max_confidence:.3f}, level: {avg_level:.3f} direction: {angle:+.1f}° 🚨🚨🚨🚨")
+                logger.info(f"🚨🚨🚨🚨 FART DETECTED! {direction_arrow}, conf: {max_confidence:.3f}, level: {avg_level:.3f} direction: {angle:+.1f}° 🚨🚨🚨🚨")
             else:
-                print(f"... quiet (max conf: {max_confidence:.3f}, avg level: {avg_level:.3f})")
-
+                logger.info(f"... quiet (max conf: {max_confidence:.3f}, avg level: {avg_level:.3f})")
+            
+            # Mark task as done only if we successfully processed an item
+            audio_queue.task_done()
+ 
         except queue.Empty:
-            print(f"Timeoute, time: {datetime.now().strftime('%H:%M:%S.%f')[:-3]}")
+            logger.warning(f"Timeout")
             continue  # Timeout, check stop_event
         except Exception as e:
-            print(f"❌ Processor {thread_id} error: {e}")
-        finally:
+            logger.error(f"❌ Processor error: {e}")
+            # Mark task as done even if processing failed
             audio_queue.task_done()
     
-    print(f"🔧 Audio processor {thread_id} stopped")
+    logger.info(f"🔧 Audio processor stopped")
 
 def predict_fart(interpreter, input_details, output_details, audio, fart_indices, class_map):
     """Predict if audio contains a fart using TensorFlow Lite"""
@@ -303,7 +328,7 @@ def predict_fart(interpreter, input_details, output_details, audio, fart_indices
         scores = mean_scores[0]  # Shape: (521,)
         top_indices = np.argsort(scores)[-top_predictions:][::-1]  # Top, highest first
         
-        print(f"Top {top_predictions}: " + ", ".join([f"{class_map.get(idx, f'Unknown_{idx}')}: {scores[idx]:.4f}" for idx in top_indices]))
+        logger.info(f"Top {top_predictions}: " + ", ".join([f"{class_map.get(idx, f'Unknown_{idx}')}: {scores[idx]:.4f}" for idx in top_indices]))
         
         # Check fart probability
         max_fart_score = 0.0
@@ -311,30 +336,30 @@ def predict_fart(interpreter, input_details, output_details, audio, fart_indices
             fart_score = mean_scores[0][idx]
             if fart_score > 0.0:
                 class_name = class_map.get(idx, f"Unknown_{idx}")
-                print(f"💩💨 Fart detected: \"{class_name}\", with score: {fart_score:.4f} 💩💨")
+                logger.info(f"💩💨 Fart detected: \"{class_name}\", with score: {fart_score:.4f} 💩💨")
             max_fart_score = max(max_fart_score, fart_score)
         
         return max_fart_score
         
     except Exception as e:
-        print(f"Prediction failed: {e}")
+        logger.error(f"Prediction failed: {e}")
         return 0.0
 
 def main():
     """Main detection loop using multi-threaded TensorFlow Lite"""
-    print("=" * 50)
-    print("Multi-threaded Raspberry Pi Fart Detector")
-    print("=" * 50)
+    logger.info("=" * 50)
+    logger.info("Multi-threaded Raspberry Pi Fart Detector")
+    logger.info("=" * 50)
     
     # List available audio devices
     try:
         devices = sd.query_devices()
-        print(f"Available audio devices: {len(devices)}")
+        logger.info(f"Available audio devices: {len(devices)}")
         for i, device in enumerate(devices):
             if device['max_input_channels'] > 0:
-                print(f"  Device {i}: {device['name']} (inputs: {device['max_input_channels']})")
+                logger.info(f"  Device {i}: {device['name']} (inputs: {device['max_input_channels']})")
     except Exception as e:
-        print(f"Failed to query audio devices: {e}")
+        logger.error(f"Failed to query audio devices: {e}")
     
     # Load class map and find fart indices
     class_map, fart_indices = load_class_map()
@@ -343,16 +368,16 @@ def main():
     interpreter, input_details, output_details = load_tflite_model()
     
     if interpreter is None:
-        print("Failed to load TensorFlow Lite model. Exiting.")
+        logger.error("Failed to load TensorFlow Lite model. Exiting.")
         return
     
-    print(f"Starting multi-threaded detection...")
-    print(f"Device sample rate: {DEVICE_SAMPLE_RATE} Hz")
-    print(f"YAMNet sample rate: {YAMNET_SAMPLE_RATE} Hz")
-    print(f"Duration: {DURATION} seconds")
-    print(f"Threshold: {DETECTION_THRESHOLD}")
-    print(f"Processing threads: {PROCESSING_THREADS}")
-    print("Press Ctrl+C to stop")
+    logger.info(f"Starting multi-threaded detection...")
+    logger.info(f"Device sample rate: {DEVICE_SAMPLE_RATE} Hz")
+    logger.info(f"YAMNet sample rate: {YAMNET_SAMPLE_RATE} Hz")
+    logger.info(f"Duration: {DURATION} seconds")
+    logger.info(f"Threshold: {DETECTION_THRESHOLD}")
+    logger.info(f"Processing threads: {PROCESSING_THREADS}")
+    logger.info("Press Ctrl+C to stop")
     
     # Create shared resources
     audio_queue = queue.Queue(maxsize=AUDIO_QUEUE_SIZE)
@@ -379,13 +404,13 @@ def main():
         processor_threads.append(thread)
     
     try:
-        print("🎤 All threads started, listening for farts...")
+        logger.info("🎤 All threads started, listening for farts...")
         # Keep main thread alive
         while True:
             time.sleep(0.1)
             
     except KeyboardInterrupt:
-        print("\n🛑 Stopping all threads...")
+        logger.info("\n🛑 Stopping all threads...")
         stop_event.set()
         
         # Wait for threads to finish
@@ -393,10 +418,10 @@ def main():
         for thread in processor_threads:
             thread.join(timeout=2)
         
-        print("✅ All threads stopped")
+        logger.info("✅ All threads stopped")
         
     except Exception as e:
-        print(f"❌ Error: {e}")
+        logger.error(f"❌ Error: {e}")
         stop_event.set()
 
 if __name__ == "__main__":
