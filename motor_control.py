@@ -327,12 +327,13 @@ def main():
         
         # Test step movement
         print("Testing step movement...")
-        motor.move_steps(1000, -1000)
+        motor.move_steps(10, -10)
         time.sleep(3)
         
         # Reset encoders
         motor.reset_encoders()
-        
+        motor.stop_motors()
+
     except KeyboardInterrupt:
         print("\nStopping...")
     finally:
