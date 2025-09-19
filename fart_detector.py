@@ -192,6 +192,11 @@ def main():
     print(f"Threshold: {DETECTION_THRESHOLD}")
     print("Press Ctrl+C to stop")
     print()
+    print("💡 TIP: Try making different sounds to see if the level changes!")
+    print("   - Clap your hands")
+    print("   - Say 'hello'")
+    print("   - Make a fart sound")
+    print()
     
     try:
         with sd.InputStream(channels=CHANNELS,
@@ -214,6 +219,11 @@ def main():
                 
                 # Calculate audio level for debugging
                 audio_level = np.sqrt(np.mean(processed_audio**2))  # RMS level
+                
+                # Debug: Show raw audio stats occasionally
+                if np.random.random() < 0.01:  # 1% chance to show debug info
+                    raw_level = np.sqrt(np.mean(audio**2))
+                    print(f"DEBUG: Raw level: {raw_level:.4f}, Processed level: {audio_level:.4f}, Max: {np.max(np.abs(processed_audio)):.4f}")
                 
                 # Check if fart is detected
                 if confidence >= DETECTION_THRESHOLD:
