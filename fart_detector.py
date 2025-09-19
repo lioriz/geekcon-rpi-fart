@@ -239,12 +239,6 @@ def main():
     print(f"Duration: {DURATION} seconds")
     print(f"Threshold: {DETECTION_THRESHOLD}")
     print("Press Ctrl+C to stop")
-    print()
-    print("💡 TIP: Try making different sounds to see if the level changes!")
-    print("   - Clap your hands")
-    print("   - Say 'hello'")
-    print("   - Make a fart sound")
-    print()
     
     try:
         with sd.InputStream(channels=CHANNELS,
@@ -265,6 +259,7 @@ def main():
                 # Estimate direction of arrival
                 angle, delay = estimate_direction(left_channel, right_channel, DEVICE_SAMPLE_RATE, MIC_DISTANCE)
                 
+                print(f"Time: {datetime.now().strftime('%Y-%m-%d %H:%M:%S.%f')}")
                 print(f"🧭 Direction: {angle:+.1f}° (delay: {delay*1e6:.1f} µs)")
                 
                 # Process LEFT channel
