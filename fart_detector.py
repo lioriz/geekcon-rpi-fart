@@ -243,11 +243,11 @@ def audio_processor(thread_id, audio_queue, interpreter, input_details, output_d
             
             # Run inference on both channels
             left_inference_start = time.time()
-            conf_left = predict_fart(interpreter, input_details, output_details, processed_left, fart_indices, class_map)
+            conf_left = predict_fart(interpreter, input_details, output_details, processed_left, fart_indices, class_map, "L")
             left_inference_time = time.time()
             
             right_inference_start = time.time()
-            conf_right = predict_fart(interpreter, input_details, output_details, processed_right, fart_indices, class_map)
+            conf_right = predict_fart(interpreter, input_details, output_details, processed_right, fart_indices, class_map, "R")
             right_inference_time = time.time()
             
             # Calculate levels
@@ -294,7 +294,7 @@ def audio_processor(thread_id, audio_queue, interpreter, input_details, output_d
     
     logger.info(f"🔧 Audio processor stopped")
 
-def predict_fart(interpreter, input_details, output_details, audio, fart_indices, class_map):
+def predict_fart(interpreter, input_details, output_details, audio, fart_indices, class_map, mic_id="Unknown"):
     """Predict if audio contains a fart using TensorFlow Lite"""
     if interpreter is None:
         # Return random prediction for demonstration
@@ -331,7 +331,7 @@ def predict_fart(interpreter, input_details, output_details, audio, fart_indices
         scores = mean_scores[0]  # Shape: (521,)
         top_indices = np.argsort(scores)[-top_predictions:][::-1]  # Top, highest first
         
-        logger.info(f"Top {top_predictions}: " + ", ".join([f"{class_map.get(idx, f'Unknown_{idx}')}: {scores[idx]:.4f}" for idx in top_indices]))
+        logger.info(f"Top {top_predictions} ({mic_id}): " + ", ".join([f"{class_map.get(idx, f'Unknown_{idx}')}: {scores[idx]:.4f}" for idx in top_indices]))
         
         # Check fart probability
         max_fart_score = 0.0
