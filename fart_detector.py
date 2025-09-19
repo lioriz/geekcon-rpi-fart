@@ -95,32 +95,39 @@ def create_dummy_model():
         print(f"Failed to create dummy model: {e}")
         return None, None, None
 
+def apply_gain(audio, target_rms=0.1, max_gain=10.0):
+    """
+    Apply automatic software gain to audio.
+    - target_rms: desired RMS level (0.1 is ~10% of full scale)
+    - max_gain: cap on gain factor to avoid blowing up noise
+    """
+    rms = np.sqrt(np.mean(audio**2))
+    if rms > 0:
+        gain = min(max_gain, target_rms / rms)
+        audio = audio * gain
+        # Clip to [-1, 1] to prevent overflow
+        audio = np.clip(audio, -1.0, 1.0)
+    return audio
+
 def preprocess_audio(audio):
     """Preprocess audio for YAMNet model"""
     # Ensure audio is mono and float32
     if audio.ndim > 1:
         audio = np.mean(audio, axis=1)
     audio = audio.astype(np.float32)
-    
-    # # Normalize audio
-    # rms = np.sqrt(np.mean(audio**2))
-    # if rms > 0:
-    #     audio = audio / (rms * 20)  # scale relative to RMS, 20 is an empirical factor
-    # # Normalize audio (less aggressive)
-    # if np.max(np.abs(audio)) > 0:
-    #     audio = audio / np.max(np.abs(audio))  # Simple max normalization
-    # Don't normalize - let the model handle raw audio levels
-    # This preserves the dynamic range needed for detection
-    
-    # Apply gentle volume boost to make sounds more detectable
-    audio = audio * 2.0  # 2x volume boost
-    # resample from device SR → YAMNet SR
+
+    # Apply software gain
+    audio = apply_gain(audio, target_rms=0.1, max_gain=10.0)
+
+    # Pre-emphasis filter (optional, helps with bursts)
+    audio = np.append(audio[0], audio[1:] - 0.97 * audio[:-1])
+
+    # Resample from device SR → YAMNet SR
     if DEVICE_SAMPLE_RATE != YAMNET_SAMPLE_RATE:
-        # Calculate resampling ratio
         ratio = YAMNET_SAMPLE_RATE / DEVICE_SAMPLE_RATE
-        # Use scipy.signal.resample for resampling
         num_samples = int(len(audio) * ratio)
         audio = signal.resample(audio, num_samples)
+
     return audio
 
 def predict_fart(interpreter, input_details, output_details, audio, fart_indices):
