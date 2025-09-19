@@ -130,7 +130,7 @@ def preprocess_audio(audio):
 
     return audio
 
-def predict_fart(interpreter, input_details, output_details, audio, fart_indices):
+def predict_fart(interpreter, input_details, output_details, audio, fart_indices, class_map):
     """Predict if audio contains a fart using TensorFlow Lite"""
     if interpreter is None:
         # Return random prediction for demonstration
@@ -161,6 +161,16 @@ def predict_fart(interpreter, input_details, output_details, audio, fart_indices
         
         # Output is already in the right shape: (1, 521)
         mean_scores = output_data  # Shape: (1, 521)
+        
+        # Get top 5 predictions with names
+        scores = mean_scores[0]  # Shape: (521,)
+        top_indices = np.argsort(scores)[-5:][::-1]  # Top 5, highest first
+        
+        print("Top 5 predictions:")
+        for i, idx in enumerate(top_indices):
+            score = scores[idx]
+            class_name = class_map.get(idx, f"Unknown_{idx}")
+            print(f"  {i+1}. {class_name}: {score:.4f}")
         
         # Check fart probability
         max_fart_score = 0.0
@@ -230,7 +240,7 @@ def main():
                 processed_audio = preprocess_audio(audio)
                 
                 # Make prediction using TensorFlow Lite
-                confidence = predict_fart(interpreter, input_details, output_details, processed_audio, fart_indices)
+                confidence = predict_fart(interpreter, input_details, output_details, processed_audio, fart_indices, class_map)
                 
                 # Calculate audio level for debugging
                 audio_level = np.sqrt(np.mean(processed_audio**2))  # RMS level
