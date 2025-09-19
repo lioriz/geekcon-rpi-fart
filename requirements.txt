@@ -6,6 +6,9 @@ numpy==1.26.4
 # Audio input
 sounddevice==0.5.2
 
+# Serial communication for motor control
+pyserial==3.5
+
 # Audio processing
 librosa==0.10.1
 scipy==1.11.4
