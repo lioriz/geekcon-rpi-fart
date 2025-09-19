@@ -107,10 +107,15 @@ def estimate_direction(left, right, samplerate, mic_distance=0.08):
     - mic_distance: spacing between mics in meters (8cm default)
     Returns angle in degrees (negative = left, positive = right).
     """
-    # Cross-correlation to find time delay
-    corr = np.correlate(left, right, mode='full')
-    delay_samples = np.argmax(corr) - (len(left) - 1)
-    delay_time = delay_samples / samplerate
+    # Downsample for faster correlation (much faster!)
+    downsample_factor = 4
+    left_ds = left[::downsample_factor]
+    right_ds = right[::downsample_factor]
+    
+    # Cross-correlation on downsampled data
+    corr = np.correlate(left_ds, right_ds, mode='full')
+    delay_samples = np.argmax(corr) - (len(left_ds) - 1)
+    delay_time = (delay_samples * downsample_factor) / samplerate
 
     # Convert delay to angle
     c = 343.0  # speed of sound (m/s)
