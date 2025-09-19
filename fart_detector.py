@@ -16,6 +16,7 @@ import queue
 import logging
 import os
 import wave
+from motor_control import MotorController
 
 LOGGER_DEFAULT_FORMATTER = logging.Formatter('%(asctime)s<%(threadName)s>%(levelname)s-%(message)s')
 
@@ -57,6 +58,14 @@ PROCESSING_THREADS = 1  # Number of processing threads
 SAVE_RECORDINGS = False  # Enable/disable recording save feature
 SAVE_EVERY_N_RECORDINGS = 10  # Save every 10th recording
 RECORDINGS_DIR = "recordings"
+
+# Motor control settings
+MOTOR_ENABLED = True  # Enable/disable motor control
+MOTOR_DRIVE_STEPS = 2000  # Steps to drive forward after detection
+MOTOR_ROTATION_STEPS_PER_DEGREE = 10  # Steps per degree of rotation
+MOTOR_SERIAL_PORT = '/dev/serial0'  # Serial port for motor communication
+MOTOR_QUEUE_SIZE = 10  # Max motor commands to queue
+MOTOR_COOLDOWN = 3.0  # Seconds to wait between motor responses
 
 # Initialize logger
 logger = get_logger('fart_detector', logging.INFO)
@@ -233,6 +242,119 @@ def recording_saver(save_queue, stop_event):
     
     logger.info("💾 Recording saver stopped")
 
+def motor_command_processor(motor_queue, motor_controller, stop_event):
+    """Dedicated thread to process motor commands sequentially"""
+    logger.info("🤖 Motor command processor started")
+    last_motor_time = 0
+    
+    while not stop_event.is_set():
+        try:
+            # Get motor command from queue (with timeout)
+            command = motor_queue.get(timeout=1.0)
+            
+            # Check cooldown period
+            current_time = time.time()
+            if current_time - last_motor_time < MOTOR_COOLDOWN:
+                logger.info(f"🤖 Motor cooldown active, skipping command")
+                motor_queue.task_done()
+                continue
+            
+            angle = command['angle']
+            logger.info(f"🤖 Processing motor command: {angle:+.1f}°")
+            
+            # Execute motor movement
+            execute_motor_movement(angle, motor_controller)
+            
+            last_motor_time = current_time
+            motor_queue.task_done()
+            
+        except queue.Empty:
+            continue  # Timeout, check stop_event
+        except Exception as e:
+            logger.error(f"❌ Motor command processor error: {e}")
+            try:
+                motor_queue.task_done()
+            except:
+                pass
+    
+    logger.info("🤖 Motor command processor stopped")
+
+def execute_motor_movement(angle, motor_controller):
+    """Execute the actual motor movement (extracted from thread)"""
+    try:
+        # Calculate rotation steps based on angle
+        if abs(angle) < 10:
+            # Fart is in front, just drive forward
+            logger.info("🤖 Fart in front, driving forward")
+            motor_controller.move_steps(MOTOR_DRIVE_STEPS, MOTOR_DRIVE_STEPS)
+        else:
+            # Fart is to the side, rotate first then drive
+            rotation_steps = int(abs(angle) * MOTOR_ROTATION_STEPS_PER_DEGREE)
+            
+            if angle > 0:
+                # Fart is to the right, rotate right
+                logger.info(f"🤖 Rotating right {rotation_steps} steps")
+                motor_controller.move_steps(rotation_steps, -rotation_steps)
+            else:
+                # Fart is to the left, rotate left
+                logger.info(f"🤖 Rotating left {rotation_steps} steps")
+                motor_controller.move_steps(-rotation_steps, rotation_steps)
+            
+            # Wait for rotation to complete
+            time.sleep(0.5)  # Brief pause between rotation and drive
+            
+            # Drive forward
+            logger.info(f"🤖 Driving forward {MOTOR_DRIVE_STEPS} steps")
+            motor_controller.move_steps(MOTOR_DRIVE_STEPS, MOTOR_DRIVE_STEPS)
+        
+        logger.info("🤖 Motor movement complete")
+        
+    except Exception as e:
+        logger.error(f"❌ Motor movement error: {e}")
+        try:
+            motor_controller.stop_motors()
+        except:
+            pass
+
+def motor_response_thread(angle, motor_controller):
+    """Thread function to handle motor response to fart detection"""
+    try:
+        logger.info(f"🤖 Motor response: rotating to {angle:+.1f}°")
+        
+        # Calculate rotation steps based on angle
+        if abs(angle) < 10:
+            # Fart is in front, just drive forward
+            logger.info("🤖 Fart in front, driving forward")
+            motor_controller.move_steps(MOTOR_DRIVE_STEPS, MOTOR_DRIVE_STEPS)
+        else:
+            # Fart is to the side, rotate first then drive
+            rotation_steps = int(abs(angle) * MOTOR_ROTATION_STEPS_PER_DEGREE)
+            
+            if angle > 0:
+                # Fart is to the right, rotate right
+                logger.info(f"🤖 Rotating right {rotation_steps} steps")
+                motor_controller.move_steps(rotation_steps, -rotation_steps)
+            else:
+                # Fart is to the left, rotate left
+                logger.info(f"🤖 Rotating left {rotation_steps} steps")
+                motor_controller.move_steps(-rotation_steps, rotation_steps)
+            
+            # Wait for rotation to complete
+            time.sleep(0.5)  # Brief pause between rotation and drive
+            
+            # Drive forward
+            logger.info(f"🤖 Driving forward {MOTOR_DRIVE_STEPS} steps")
+            motor_controller.move_steps(MOTOR_DRIVE_STEPS, MOTOR_DRIVE_STEPS)
+        
+        logger.info("🤖 Motor response complete")
+        
+    except Exception as e:
+        logger.error(f"❌ Motor response error: {e}")
+        try:
+            motor_controller.stop_motors()
+        except:
+            pass
+
 def preprocess_audio(audio):
     """Preprocess audio for YAMNet model"""
     # Ensure audio is mono and float32
@@ -281,8 +403,8 @@ def audio_producer(audio_queue, stop_event):
     finally:
         logger.info("🎤 Audio producer stopped")
 
-def audio_processor(audio_queue, save_queue, interpreter, input_details, output_details, 
-                   fart_indices, class_map, stop_event):
+def audio_processor(audio_queue, save_queue, motor_queue, interpreter, input_details, output_details, 
+                   fart_indices, class_map, stop_event, motor_controller=None):
     """Consumer thread: processes audio from queue"""
     logger.info(f"🔧 Audio processor started")
     recording_counter = 0
@@ -343,6 +465,20 @@ def audio_processor(audio_queue, save_queue, interpreter, input_details, output_
                     direction_arrow = "⬅️"  # Left
                 
                 logger.info(f"🚨🚨🚨🚨 FART DETECTED! {direction_arrow}, conf: {max_confidence:.3f}, level: {avg_level:.3f} direction: {angle:+.1f}° 🚨🚨🚨🚨")
+                
+                # Queue motor response if enabled
+                if MOTOR_ENABLED and motor_controller is not None and motor_queue is not None:
+                    try:
+                        # Add motor command to queue
+                        motor_queue.put_nowait({
+                            'angle': angle,
+                            'timestamp': time.time()
+                        })
+                        logger.info(f"🤖 Motor command queued: {angle:+.1f}°")
+                    except queue.Full:
+                        logger.warning("⚠️ Motor queue full, dropping command")
+                    except Exception as e:
+                        logger.error(f"❌ Failed to queue motor response: {e}")
             # else:
                 #logger.info(f"... quiet (max conf: {max_confidence:.3f}, avg level: {avg_level:.3f})")
             
@@ -471,6 +607,25 @@ def main():
         logger.error("Failed to load TensorFlow Lite model. Exiting.")
         return
     
+    # Initialize motor controller if enabled
+    motor_controller = None
+    if MOTOR_ENABLED:
+        try:
+            motor_controller = MotorController(port=MOTOR_SERIAL_PORT)
+            if motor_controller.connect():
+                logger.info("🤖 Motor controller connected successfully")
+                # Test motor communication
+                if motor_controller.ping():
+                    logger.info("🤖 Motor controller is responsive")
+                else:
+                    logger.warning("🤖 Motor controller not responsive, continuing anyway")
+            else:
+                logger.error("🤖 Failed to connect to motor controller")
+                motor_controller = None
+        except Exception as e:
+            logger.error(f"🤖 Motor controller initialization failed: {e}")
+            motor_controller = None
+    
     logger.info(f"Starting multi-threaded detection...")
     logger.info(f"Device sample rate: {DEVICE_SAMPLE_RATE} Hz")
     logger.info(f"YAMNet sample rate: {YAMNET_SAMPLE_RATE} Hz")
@@ -482,6 +637,7 @@ def main():
     # Create shared resources
     audio_queue = queue.Queue(maxsize=AUDIO_QUEUE_SIZE)
     save_queue = queue.Queue(maxsize=50)  # Queue for recordings to save
+    motor_queue = queue.Queue(maxsize=MOTOR_QUEUE_SIZE)  # Queue for motor commands
     stop_event = threading.Event()
     
     # Start producer thread (audio capture)
@@ -502,13 +658,23 @@ def main():
         )
         saver_thread.start()
     
+    # Start motor command processor thread (only if motor is enabled)
+    motor_processor_thread = None
+    if MOTOR_ENABLED and motor_controller is not None:
+        motor_processor_thread = threading.Thread(
+            target=motor_command_processor,
+            args=(motor_queue, motor_controller, stop_event),
+            name="🤖MotorProcessor"
+        )
+        motor_processor_thread.start()
+    
     # Start consumer threads (audio processing)
     processor_threads = []
     for i in range(PROCESSING_THREADS):
         thread = threading.Thread(
             target=audio_processor,
-            args=(audio_queue, save_queue, interpreter, input_details, output_details, 
-                  fart_indices, class_map, stop_event),
+            args=(audio_queue, save_queue, motor_queue, interpreter, input_details, output_details, 
+                  fart_indices, class_map, stop_event, motor_controller),
             name=f"🔧AudioProcess-{i+1}"
         )
         thread.start()
@@ -530,12 +696,31 @@ def main():
             thread.join(timeout=2)
         if saver_thread:
             saver_thread.join(timeout=2)
+        if motor_processor_thread:
+            motor_processor_thread.join(timeout=2)
         
         logger.info("✅ All threads stopped")
+        
+        # Stop motors and disconnect
+        if motor_controller:
+            try:
+                motor_controller.stop_motors()
+                motor_controller.disconnect()
+                logger.info("🤖 Motor controller disconnected")
+            except Exception as e:
+                logger.error(f"🤖 Motor cleanup error: {e}")
         
     except Exception as e:
         logger.error(f"❌ Error: {e}")
         stop_event.set()
+        
+        # Emergency motor stop
+        if motor_controller:
+            try:
+                motor_controller.stop_motors()
+                motor_controller.disconnect()
+            except:
+                pass
 
 if __name__ == "__main__":
     main()
