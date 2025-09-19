@@ -85,6 +85,35 @@ Edit the global constants in `fart_detector.py` to adjust:
 - `DEVICE_ID`: Audio device ID (default: None for auto-detect)
 - `DETECTION_THRESHOLD`: Confidence threshold for detection (default: 0.35)
 
+## Performance Optimization
+
+For better performance on Raspberry Pi 4:
+
+### 1. **XNNPACK Delegate** (Already implemented)
+- Enables multi-threaded CPU kernels
+- Automatically falls back if not available
+- Should provide 2-3x speed improvement
+
+### 2. **Model Quantization** (Optional)
+Convert the model to optimized formats:
+
+```bash
+# On a laptop/desktop with full TensorFlow
+python convert_model.py
+```
+
+Then update `MODEL_PATH` in `fart_detector.py`:
+```python
+MODEL_PATH = 'yamnet_model/yamnet_fp16.tflite'  # FP16 (recommended)
+# or
+MODEL_PATH = 'yamnet_model/yamnet_int8.tflite'  # INT8 (maximum performance)
+```
+
+### 3. **Other Optimizations**
+- **Reduce audio chunk size** (adjust `DURATION` in code)
+- **Lower detection threshold** (adjust `DETECTION_THRESHOLD`)
+- **Use stereo microphones** for better detection reliability
+
 ## Project Structure
 
 ```
