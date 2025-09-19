@@ -17,24 +17,7 @@ import logging
 import os
 import wave
 from motor_control import MotorController
-
-LOGGER_DEFAULT_FORMATTER = logging.Formatter('%(asctime)s<%(threadName)s>%(levelname)s-%(message)s')
-
-def get_base_logger(name):
-    logger = logging.getLogger(name)
-    if logger.handlers:
-        for handler in logger.handlers:
-            logger.removeHandler(handler)
-    return logger
-
-def get_logger(name, level=logging.INFO):
-    logger = get_base_logger(name)
-    stream_handler = logging.StreamHandler()
-    stream_handler.setFormatter(LOGGER_DEFAULT_FORMATTER)
-    logger.setLevel(level)
-    logger.addHandler(stream_handler)
-    logger.propagate = False
-    return logger
+from logger_utils import get_logger
 
 # Global configuration constants
 YAMNET_SAMPLE_RATE = 16000  # Hz - YAMNet expects 16kHz
@@ -61,8 +44,8 @@ RECORDINGS_DIR = "recordings"
 
 # Motor control settings
 MOTOR_ENABLED = True  # Enable/disable motor control
-MOTOR_DRIVE_STEPS = 2000  # Steps to drive forward after detection
-MOTOR_ROTATION_STEPS_PER_DEGREE = 10  # Steps per degree of rotation
+MOTOR_DRIVE_STEPS = 10  # Steps to drive forward after detection
+MOTOR_ROTATION_STEPS_PER_DEGREE = 5 / 90  # Steps per degree of rotation (5 steps = 90 degrees)
 MOTOR_SERIAL_PORT = '/dev/serial0'  # Serial port for motor communication
 MOTOR_QUEUE_SIZE = 10  # Max motor commands to queue
 MOTOR_COOLDOWN = 3.0  # Seconds to wait between motor responses
@@ -294,7 +277,7 @@ def execute_motor_movement(angle, motor_controller):
             if angle > 0:
                 # Fart is to the right, rotate right
                 logger.info(f"🤖 Rotating right {rotation_steps} steps")
-                motor_controller.move_steps(rotation_steps, -rotation_steps)
+                motor_controller.move_steps(-rotation_steps, rotation_steps)
             else:
                 # Fart is to the left, rotate left
                 logger.info(f"🤖 Rotating left {rotation_steps} steps")
@@ -316,44 +299,6 @@ def execute_motor_movement(angle, motor_controller):
         except:
             pass
 
-def motor_response_thread(angle, motor_controller):
-    """Thread function to handle motor response to fart detection"""
-    try:
-        logger.info(f"🤖 Motor response: rotating to {angle:+.1f}°")
-        
-        # Calculate rotation steps based on angle
-        if abs(angle) < 10:
-            # Fart is in front, just drive forward
-            logger.info("🤖 Fart in front, driving forward")
-            motor_controller.move_steps(MOTOR_DRIVE_STEPS, MOTOR_DRIVE_STEPS)
-        else:
-            # Fart is to the side, rotate first then drive
-            rotation_steps = int(abs(angle) * MOTOR_ROTATION_STEPS_PER_DEGREE)
-            
-            if angle > 0:
-                # Fart is to the right, rotate right
-                logger.info(f"🤖 Rotating right {rotation_steps} steps")
-                motor_controller.move_steps(rotation_steps, -rotation_steps)
-            else:
-                # Fart is to the left, rotate left
-                logger.info(f"🤖 Rotating left {rotation_steps} steps")
-                motor_controller.move_steps(-rotation_steps, rotation_steps)
-            
-            # Wait for rotation to complete
-            time.sleep(0.5)  # Brief pause between rotation and drive
-            
-            # Drive forward
-            logger.info(f"🤖 Driving forward {MOTOR_DRIVE_STEPS} steps")
-            motor_controller.move_steps(MOTOR_DRIVE_STEPS, MOTOR_DRIVE_STEPS)
-        
-        logger.info("🤖 Motor response complete")
-        
-    except Exception as e:
-        logger.error(f"❌ Motor response error: {e}")
-        try:
-            motor_controller.stop_motors()
-        except:
-            pass
 
 def preprocess_audio(audio):
     """Preprocess audio for YAMNet model"""

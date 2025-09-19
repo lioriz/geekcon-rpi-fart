@@ -8,6 +8,7 @@ import serial
 import struct
 import time
 import logging
+from logger_utils import get_logger
 
 # Protocol constants
 SOF = 0xAA  # Start of Frame
@@ -42,7 +43,7 @@ class MotorController:
         self.baudrate = baudrate
         self.timeout = timeout
         self.ser = None
-        self.logger = logging.getLogger('motor_control')
+        self.logger = get_logger('motor_control')
         
     def connect(self):
         """Connect to the MCU"""
@@ -282,13 +283,15 @@ class MotorController:
     
     def stop_motors(self):
         """Stop both motors (set speed to 0)"""
+        self.logger.info("Stopping motors")
+        self.reset_encoders()
         return self.set_motors(0, 0)
 
 
 def main():
     """Example usage"""
-    # Setup logging
-    logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+    # Setup logging - use the same format as fart_detector
+    logging.basicConfig(level=logging.INFO, format='%(asctime)s<%(threadName)s>%(levelname)s::%(message)s')
     
     # Create motor controller
     motor = MotorController()
@@ -304,35 +307,53 @@ def main():
             print("MCU is not responsive")
             return
         
-        # Test motor control
-        print("Testing motor control...")
-        motor.set_motors(500, -500)  # Move forward
-        print("Moving forward for 3 seconds...")
-        time.sleep(3)
+        # # Test motor control
+        # print("Testing motor control...")
+        # motor.set_motors(500, -500)  # Move forward
+        # print("Moving forward for 3 seconds...")
+        # time.sleep(3)
         
-        motor.set_motors(-500, 500)  # Move backward
-        print("Moving backward for 3 seconds...")
-        time.sleep(3)
+        # motor.set_motors(-500, 500)  # Move backward
+        # print("Moving backward for 3 seconds...")
+        # time.sleep(3)
         
-        motor.stop_motors()  # Stop
-        print("Motors stopped")
-        time.sleep(3)
+        # motor.stop_motors()  # Stop
+        # print("Motors stopped")
+        # time.sleep(3)
         
         # Test encoder reading
         print("Testing encoder reading...")
         encoder1, encoder2 = motor.get_encoders()
-        time.sleep(3)
         if encoder1 is not None:
             print(f"Encoder values: E1={encoder1}, E2={encoder2}")
         
         # Test step movement
         print("Testing step movement...")
-        motor.move_steps(10, -10)
-        time.sleep(3)
+        steps = 5
+        motor.move_steps(-steps, steps)
+        start_time = time.time()
+        time.sleep(0.01)
+        encoder1, encoder2 = motor.get_encoders()
+        if encoder1 is not None:
+            print(f"Encoder values: E1={encoder1}, E2={encoder2}")
+        while abs(encoder1) < steps and abs(encoder2) < steps:
+            encoder1, encoder2 = motor.get_encoders()
+            if encoder1 is not None:
+                print(f"Encoder values: E1={encoder1}, E2={encoder2}")
+            time.sleep(0.01)
+        end_time = time.time()
         
+        print("Waiting for 3 seconds...")
+        time.sleep(3)
+        encoder1, encoder2 = motor.get_encoders()
+        if encoder1 is not None:
+            print(f"Encoder values: E1={encoder1}, E2={encoder2}")
+        print(f"Time taken for {steps} steps: {end_time - start_time} seconds")   
+        print("Resetting encoders...")
         # Reset encoders
         motor.reset_encoders()
         motor.stop_motors()
+        print("Motors stopped")
 
     except KeyboardInterrupt:
         print("\nStopping...")
