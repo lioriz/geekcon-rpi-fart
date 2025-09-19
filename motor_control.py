@@ -316,20 +316,22 @@ def main():
         
         motor.stop_motors()  # Stop
         print("Motors stopped")
+        time.sleep(3)
         
         # Test encoder reading
-        # print("Testing encoder reading...")
-        # encoder1, encoder2 = motor.get_encoders()
-        # if encoder1 is not None:
-        #     print(f"Encoder values: E1={encoder1}, E2={encoder2}")
+        print("Testing encoder reading...")
+        encoder1, encoder2 = motor.get_encoders()
+        time.sleep(3)
+        if encoder1 is not None:
+            print(f"Encoder values: E1={encoder1}, E2={encoder2}")
         
-        # # Test step movement
-        # print("Testing step movement...")
-        # motor.move_steps(1000, -1000)
-        # time.sleep(1)
+        # Test step movement
+        print("Testing step movement...")
+        motor.move_steps(1000, -1000)
+        time.sleep(3)
         
         # Reset encoders
-        # motor.reset_encoders()
+        motor.reset_encoders()
         
     except KeyboardInterrupt:
         print("\nStopping...")
