@@ -176,6 +176,9 @@ def predict_fart(interpreter, input_details, output_details, audio, fart_indices
         max_fart_score = 0.0
         for idx in fart_indices:
             fart_score = mean_scores[0][idx]
+            if fart_score > 0.0:
+                class_name = class_map.get(idx, f"Unknown_{idx}")
+                print(f"Fart detected: \"{class_name}\", with score: {fart_score:.4f}")
             max_fart_score = max(max_fart_score, fart_score)
         
         return max_fart_score
