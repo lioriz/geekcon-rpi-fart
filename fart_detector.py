@@ -273,8 +273,11 @@ def main():
             print("Listening for farts...")
             
             while True:
+                cycle_start = time.time()
+                
                 # Read audio block from stream (stereo)
                 audio, overflowed = stream.read(BLOCK_SIZE)
+                audio_time = time.time()
                 
                 # Split into left and right channels
                 left_channel = audio[:, 0]   # Left microphone
@@ -282,6 +285,7 @@ def main():
                 
                 # Estimate direction of arrival
                 angle, delay = estimate_direction(left_channel, right_channel, DEVICE_SAMPLE_RATE, MIC_DISTANCE)
+                direction_time = time.time()
                 
                 print(f"Time: {datetime.now().strftime('%Y-%m-%d %H:%M:%S.%f')}")
                 print(f"🧭 Direction: {angle:+.1f}° (delay: {delay*1e6:.1f} µs)")
@@ -289,13 +293,17 @@ def main():
                 # Process LEFT channel
                 print("🔴 LEFT MICROPHONE:")
                 processed_left = preprocess_audio(left_channel)
+                left_inference_start = time.time()
                 conf_left = predict_fart(interpreter, input_details, output_details, processed_left, fart_indices, class_map)
+                left_inference_time = time.time()
                 level_left = np.sqrt(np.mean(processed_left**2))
                 
                 # Process RIGHT channel  
                 print("🔵 RIGHT MICROPHONE:")
                 processed_right = preprocess_audio(right_channel)
+                right_inference_start = time.time()
                 conf_right = predict_fart(interpreter, input_details, output_details, processed_right, fart_indices, class_map)
+                right_inference_time = time.time()
                 level_right = np.sqrt(np.mean(processed_right**2))
                 
                 # Combined detection results
@@ -304,6 +312,15 @@ def main():
                 # Detection logic - either mic can detect
                 max_confidence = max(conf_left, conf_right)
                 avg_level = (level_left + level_right) / 2
+                
+                # Timing analysis
+                total_time = time.time() - cycle_start
+                audio_duration = audio_time - cycle_start
+                direction_duration = direction_time - audio_time
+                left_inference_duration = left_inference_time - left_inference_start
+                right_inference_duration = right_inference_time - right_inference_start
+                
+                print(f"⏱️  TIMING: Total={total_time:.3f}s | Audio={audio_duration:.3f}s | Dir={direction_duration:.3f}s | L_inf={left_inference_duration:.3f}s | R_inf={right_inference_duration:.3f}s")
                 
                 if max_confidence >= DETECTION_THRESHOLD:
                     # Determine direction arrow
