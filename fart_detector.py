@@ -14,6 +14,8 @@ import threading
 from collections import deque
 import queue
 import logging
+import os
+import wave
 
 LOGGER_DEFAULT_FORMATTER = logging.Formatter('%(asctime)s<%(threadName)s>%(levelname)s-%(message)s')
 
@@ -50,6 +52,11 @@ BLOCK_SIZE = int(DEVICE_SAMPLE_RATE * DURATION)
 # Threading settings
 AUDIO_QUEUE_SIZE = 10  # Number of audio chunks to buffer
 PROCESSING_THREADS = 1  # Number of processing threads
+
+# Recording save settings
+SAVE_EVERY_N_RECORDINGS = 10  # Save every 10th recording
+SAVE_DETECTED_RECORDINGS = True  # Save all detected farts
+RECORDINGS_DIR = "recordings"
 
 # Initialize logger
 logger = get_logger('fart_detector', logging.INFO)
@@ -170,6 +177,59 @@ def apply_gain(audio, target_rms=0.1, max_gain=10.0):
         audio = np.clip(audio, -1.0, 1.0)
     return audio
 
+def save_audio_to_wav(audio, filename, sample_rate):
+    """Save audio data to WAV file"""
+    try:
+        # Ensure audio is in the right format (16-bit PCM)
+        audio_int16 = (audio * 32767).astype(np.int16)
+        
+        with wave.open(filename, 'wb') as wav_file:
+            wav_file.setnchannels(2)  # Stereo
+            wav_file.setsampwidth(2)  # 2 bytes per sample (16-bit)
+            wav_file.setframerate(sample_rate)
+            wav_file.writeframes(audio_int16.tobytes())
+        
+        logger.info(f"💾 Saved recording: {filename}")
+        return True
+    except Exception as e:
+        logger.error(f"Failed to save recording {filename}: {e}")
+        return False
+
+def recording_saver(save_queue, stop_event):
+    """Thread function to save recordings to disk"""
+    logger.info("💾 Recording saver started")
+    
+    # Create recordings directory
+    os.makedirs(RECORDINGS_DIR, exist_ok=True)
+    
+    while not stop_event.is_set():
+        try:
+            # Get recording from queue (with timeout)
+            recording_data = save_queue.get(timeout=1.0)
+            
+            audio_data = recording_data['audio']
+            filename = recording_data['filename']
+            sample_rate = recording_data['sample_rate']
+            reason = recording_data.get('reason', 'unknown')
+            
+            # Save the recording
+            success = save_audio_to_wav(audio_data, filename, sample_rate)
+            
+            if success:
+                logger.info(f"💾 Saved {reason} recording: {filename}")
+            else:
+                logger.error(f"❌ Failed to save {reason} recording: {filename}")
+                
+        except queue.Empty:
+            continue  # Timeout, check stop_event
+        except Exception as e:
+            logger.error(f"❌ Recording saver error: {e}")
+        finally:
+            if 'recording_data' in locals():
+                save_queue.task_done()
+    
+    logger.info("💾 Recording saver stopped")
+
 def preprocess_audio(audio):
     """Preprocess audio for YAMNet model"""
     # Ensure audio is mono and float32
@@ -218,15 +278,16 @@ def audio_producer(audio_queue, stop_event):
     finally:
         logger.info("🎤 Audio producer stopped")
 
-def audio_processor(thread_id, audio_queue, interpreter, input_details, output_details, 
+def audio_processor(audio_queue, save_queue, interpreter, input_details, output_details, 
                    fart_indices, class_map, stop_event):
     """Consumer thread: processes audio from queue"""
     logger.info(f"🔧 Audio processor started")
+    recording_counter = 0
     
     while not stop_event.is_set():
         try:
             # Get audio from queue (with timeout)
-            audio = audio_queue.get(timeout=1.0)
+            audio = audio_queue.get(timeout=2.0)
             
             # Split into left and right channels
             left_channel = audio[:, 0]   # Left microphone
@@ -268,6 +329,13 @@ def audio_processor(thread_id, audio_queue, interpreter, input_details, output_d
             # Log results
             #logger.info(f"🧭 {angle:+.1f}° | L: confidance-{conf_left:.3f}, level-{level_left:.3f} | R: confidance-{conf_right:.3f}, level-{level_right:.3f} | ⏱️ Total={total_time:.3f}s | Direction={direction_duration:.3f}s | Preprocess={preprocess_duration:.3f}s | L_inf={left_inference_duration:.3f}s | R_inf={right_inference_duration:.3f}s")
             
+            # Increment recording counter
+            recording_counter += 1
+            
+            # Check if we should save this recording
+            should_save = False
+            save_reason = ""
+            
             if max_confidence >= DETECTION_THRESHOLD:
                 # Determine direction arrow
                 if abs(angle) < 10:
@@ -278,6 +346,32 @@ def audio_processor(thread_id, audio_queue, interpreter, input_details, output_d
                     direction_arrow = "⬅️"  # Left
                 
                 logger.info(f"🚨🚨🚨🚨 FART DETECTED! {direction_arrow}, conf: {max_confidence:.3f}, level: {avg_level:.3f} direction: {angle:+.1f}° 🚨🚨🚨🚨")
+                
+                # Save detected fart
+                if SAVE_DETECTED_RECORDINGS:
+                    should_save = True
+                    save_reason = "fart_detected"
+            elif recording_counter % SAVE_EVERY_N_RECORDINGS == 0:
+                # Save every Nth recording
+                should_save = True
+                save_reason = f"every_{SAVE_EVERY_N_RECORDINGS}"
+            
+            # Queue recording for saving if needed
+            if should_save:
+                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")[:-3]
+                filename = f"{RECORDINGS_DIR}/{save_reason}_{timestamp}.wav"
+                
+                try:
+                    save_queue.put_nowait({
+                        'audio': audio,
+                        'filename': filename,
+                        'sample_rate': DEVICE_SAMPLE_RATE,
+                        'reason': save_reason
+                    })
+                    logger.info(f"💾 Queued {save_reason} recording: {filename}")
+                except queue.Full:
+                    logger.warning("⚠️ Save queue full, dropping recording")
+            
             # else:
                 #logger.info(f"... quiet (max conf: {max_confidence:.3f}, avg level: {avg_level:.3f})")
             
@@ -384,6 +478,7 @@ def main():
     
     # Create shared resources
     audio_queue = queue.Queue(maxsize=AUDIO_QUEUE_SIZE)
+    save_queue = queue.Queue(maxsize=50)  # Queue for recordings to save
     stop_event = threading.Event()
     
     # Start producer thread (audio capture)
@@ -394,12 +489,20 @@ def main():
     )
     producer_thread.start()
     
+    # Start recording saver thread
+    saver_thread = threading.Thread(
+        target=recording_saver,
+        args=(save_queue, stop_event),
+        name="💾RecordingSaver"
+    )
+    saver_thread.start()
+    
     # Start consumer threads (audio processing)
     processor_threads = []
     for i in range(PROCESSING_THREADS):
         thread = threading.Thread(
             target=audio_processor,
-            args=(i+1, audio_queue, interpreter, input_details, output_details, 
+            args=(audio_queue, save_queue, interpreter, input_details, output_details, 
                   fart_indices, class_map, stop_event),
             name=f"🔧AudioProcess-{i+1}"
         )
@@ -420,6 +523,7 @@ def main():
         producer_thread.join(timeout=2)
         for thread in processor_threads:
             thread.join(timeout=2)
+        saver_thread.join(timeout=2)
         
         logger.info("✅ All threads stopped")
         
