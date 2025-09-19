@@ -21,6 +21,7 @@ CLASS_MAP_PATH = 'yamnet_model/yamnet_class_map.csv'
 
 # Detection settings - adjust these for better sensitivity
 DETECTION_THRESHOLD = 0.001  # Lower = more sensitive (0.05-0.3 range)
+MIC_DISTANCE = 0.08  # Distance between microphones in meters
 BLOCK_SIZE = int(DEVICE_SAMPLE_RATE * DURATION)
 
 def load_class_map():
@@ -93,6 +94,29 @@ def create_dummy_model():
     except Exception as e:
         print(f"Failed to create dummy model: {e}")
         return None, None, None
+
+def estimate_direction(left, right, samplerate, mic_distance=0.08):
+    """
+    Estimate direction of arrival from two microphones using TDOA.
+    - left, right: audio arrays
+    - samplerate: sample rate in Hz
+    - mic_distance: spacing between mics in meters (8cm default)
+    Returns angle in degrees (negative = left, positive = right).
+    """
+    # Cross-correlation to find time delay
+    corr = np.correlate(left, right, mode='full')
+    delay_samples = np.argmax(corr) - (len(left) - 1)
+    delay_time = delay_samples / samplerate
+
+    # Convert delay to angle
+    c = 343.0  # speed of sound (m/s)
+    value = (delay_time * c) / mic_distance
+    # Clamp value to [-1, 1] to avoid math domain error
+    value = max(-1.0, min(1.0, value))
+    angle_rad = np.arcsin(value)
+    angle_deg = np.degrees(angle_rad)
+
+    return angle_deg, delay_time
 
 def apply_gain(audio, target_rms=0.1, max_gain=10.0):
     """
@@ -242,8 +266,12 @@ def main():
                 left_channel = audio[:, 0]   # Left microphone
                 right_channel = audio[:, 1]  # Right microphone
                 
+                # Estimate direction of arrival
+                angle, delay = estimate_direction(left_channel, right_channel, DEVICE_SAMPLE_RATE, MIC_DISTANCE)
+                
                 print("=" * 60)
                 print("🎤 STEREO DETECTION - Both Microphones")
+                print(f"🧭 Direction: {angle:+.1f}° (delay: {delay*1e6:.1f} µs)")
                 print("=" * 60)
                 
                 # Process LEFT channel
@@ -269,7 +297,18 @@ def main():
                 avg_level = (level_left + level_right) / 2
                 
                 if max_confidence >= DETECTION_THRESHOLD:
-                    print(f"🚨🚨🚨🚨 FART DETECTED! (max conf: {max_confidence:.3f}, avg level: {avg_level:.3f})🚨🚨🚨🚨")
+                    # Determine direction arrow
+                    if abs(angle) < 10:
+                        direction_arrow = "⬆️"  # Front
+                    elif angle > 0:
+                        direction_arrow = "➡️"  # Right
+                    else:
+                        direction_arrow = "⬅️"  # Left
+                    
+                    print(f"🚨🚨🚨🚨 FART DETECTED! {direction_arrow}")
+                    print(f"   Confidence: {max_confidence:.3f}, Level: {avg_level:.3f}")
+                    print(f"   Direction: {angle:+.1f}° from center")
+                    print(f"🚨🚨🚨🚨")
                 else:
                     print(f"... quiet (max conf: {max_confidence:.3f}, avg level: {avg_level:.3f})")
                 print("=" * 60)
