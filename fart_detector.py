@@ -48,7 +48,7 @@ MOTOR_DRIVE_STEPS = 10  # Steps to drive forward after detection
 MOTOR_ROTATION_STEPS_PER_DEGREE = 5 / 90  # Steps per degree of rotation (5 steps = 90 degrees)
 MOTOR_SERIAL_PORT = '/dev/serial0'  # Serial port for motor communication
 MOTOR_QUEUE_SIZE = 10  # Max motor commands to queue
-MOTOR_COOLDOWN = 3.0  # Seconds to wait between motor responses
+MOTOR_COOLDOWN = 0.0  # Seconds to wait between motor responses
 
 # Initialize logger
 logger = get_logger('fart_detector', logging.INFO)
@@ -281,8 +281,8 @@ def execute_motor_movement(angle, motor_controller):
             else:
                 # Fart is to the left, rotate left
                 logger.info(f"🤖 Rotating left {rotation_steps} steps")
-                motor_controller.move_steps(-rotation_steps, rotation_steps)
-            
+                motor_controller.move_steps(rotation_steps, -rotation_steps)
+
             # Wait for rotation to complete
             time.sleep(0.5)  # Brief pause between rotation and drive
             
