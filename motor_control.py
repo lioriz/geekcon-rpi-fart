@@ -17,7 +17,6 @@ EOF = 0x55  # End of Frame
 # Command IDs (Raspberry Pi -> MCU)
 CMD_SET_MOTORS = 0x01
 CMD_GET_ENCODERS = 0x02
-CMD_RESET_ENCODERS = 0x03
 CMD_PING = 0x04
 CMD_MOVE_STEPS = 0x05
 
@@ -232,18 +231,6 @@ class MotorController:
         self.logger.info(f"Encoders: E1={encoder1}, E2={encoder2}")
         return encoder1, encoder2
     
-    def reset_encoders(self):
-        """
-        Reset encoder counts to zero
-        
-        Returns:
-            bool: True if command sent successfully
-        """
-        success = self._send_message(CMD_RESET_ENCODERS)
-        if success:
-            self.logger.info("Reset encoders")
-        return success
-    
     def ping(self):
         """
         Ping the MCU to check if it's responsive
@@ -284,7 +271,6 @@ class MotorController:
     def stop_motors(self):
         """Stop both motors (set speed to 0)"""
         self.logger.info("Stopping motors")
-        self.reset_encoders()
         return self.set_motors(0, 0)
 
 
@@ -351,7 +337,6 @@ def main():
         print(f"Time taken for {steps} steps: {end_time - start_time} seconds")   
         print("Resetting encoders...")
         # Reset encoders
-        motor.reset_encoders()
         motor.stop_motors()
         print("Motors stopped")
 
