@@ -1,19 +1,41 @@
-# Simple Raspberry Pi Fart Detector using TensorFlow Lite
+# Raspberry Pi Fart Detection & Robot System
 
-A simple audio classification system that runs on Raspberry Pi 4 to detect fart sounds using TensorFlow Lite for optimal performance. The system continuously listens to a USB microphone, processes audio through a lightweight model, and prints detection results.
+A comprehensive Raspberry Pi system with two main components:
+
+1. **Fart Detector** (`fart_detector.py`) - A machine learning-based system that listens for fart sounds using TensorFlow Lite and YAMNet
+2. **Farter Robot** (`main_farter.py`) - An autonomous robot that drives around randomly and plays fart sounds
+
+Both systems are optimized for Raspberry Pi 4 and can be used independently or together.
 
 ## Features
 
-- Simple continuous audio capture from USB microphone
-- Machine learning-based sound classification
-- Configurable detection thresholds
-- Easy setup and deployment
-- Optimized for Raspberry Pi 4 performance
+### Fart Detector
+- **Machine Learning**: Uses TensorFlow Lite with YAMNet for sound classification
+- **Real-time Detection**: Continuously listens and detects fart sounds
+- **Direction Finding**: Uses stereo microphones to determine sound direction
+- **Motor Response**: Automatically drives toward detected fart sounds
+- **Recording**: Optional audio recording and playback
+
+### Farter Robot
+- **Random Movement**: Robot drives with random left and right motor speeds (-500 to 500)
+- **Random Sound Playback**: Plays fart sounds from MP3 files at random intervals
+- **Multi-threaded**: Separate threads for movement and sound playback
+- **Configurable**: Easy to adjust timing, speeds, and behavior
+- **Motor Control**: Communicates with STM32L412xx MCU over UART
 
 ## Hardware Requirements
 
+### For Fart Detector
 - Raspberry Pi 4 (4GB RAM recommended)
-- USB Microphone (compatible with ALSA)
+- USB Microphone (compatible with ALSA) - stereo recommended for direction finding
+- Motor controller (STM32L412xx MCU) connected via UART (optional)
+- MicroSD card (32GB+ recommended)
+- Power supply (5V, 3A)
+
+### For Farter Robot
+- Raspberry Pi 4 (4GB RAM recommended)
+- Motor controller (STM32L412xx MCU) connected via UART
+- Audio output (speakers or headphones)
 - MicroSD card (32GB+ recommended)
 - Power supply (5V, 3A)
 
@@ -21,6 +43,7 @@ A simple audio classification system that runs on Raspberry Pi 4 to detect fart 
 
 - Raspberry Pi OS (64-bit recommended)
 - Python 3.8+
+- mpg123 for audio playback (Farter Robot only)
 - uv (Python package manager)
 - Virtual environment support
 
@@ -40,7 +63,7 @@ The `--no-deps` flag is used to avoid dependency conflicts on Raspberry Pi.
 1. **Install system dependencies:**
    ```bash
    sudo apt update
-   sudo apt install python3-pip tensorflow portaudio19-dev
+   sudo apt install python3-pip mpg123 portaudio19-dev
    ```
 
 2. **Install uv (Python package manager):**
@@ -59,60 +82,87 @@ The `--no-deps` flag is used to avoid dependency conflicts on Raspberry Pi.
    uv pip install --no-deps -r requirements.txt
    ```
 
+### Option 1: Fart Detector
 5. **Test microphone:**
    ```bash
    python3 -m sounddevice  # List available audio devices
    arecord -l  # List available audio devices
-   arecord -D hw:1,0 -f cd -t wav test.wav  # Test recording
    ```
 
-6. **YAMNet model is included:**
-   - The project includes a pre-trained YAMNet model in the `yamnet_model/` directory
-   - YAMNet is a powerful audio classification model that can detect 521 different sound classes
-   - The model will automatically detect fart sounds (class index 55)
-
-7. **Run the detector:**
+6. **Run the fart detector:**
    ```bash
    source .venv/bin/activate
-   python fart_detector_lite.py
+   python3 fart_detector.py
    ```
+
+### Option 2: Farter Robot
+5. **Create fart sounds directory and add MP3 files:**
+   ```bash
+   mkdir -p ~/farts
+   # Add your fart sound MP3 files to ~/farts/
+   ```
+
+6. **Run the farter robot:**
+   ```bash
+   source .venv/bin/activate
+   python3 main_farter.py
+   ```
+
+### Stop either system:
+Press `Ctrl+C` to stop gracefully.
 
 ## Configuration
 
-Edit the global constants in `fart_detector.py` to adjust:
-- `SAMPLE_RATE`: Audio sample rate (default: 16000 Hz)
-- `DURATION`: Recording duration in seconds (default: 2.0)
-- `DEVICE_ID`: Audio device ID (default: None for auto-detect)
-- `DETECTION_THRESHOLD`: Confidence threshold for detection (default: 0.35)
-
-## Performance Optimization
-
-For better performance on Raspberry Pi 4:
-
-### 1. **XNNPACK Delegate** (Already implemented)
-- Enables multi-threaded CPU kernels
-- Automatically falls back if not available
-- Should provide 2-3x speed improvement
-
-### 2. **Model Quantization** (Optional)
-Convert the model to optimized formats:
-
-```bash
-# On a laptop/desktop with full TensorFlow
-python convert_model.py
-```
-
-Then update `MODEL_PATH` in `fart_detector.py`:
+### Fart Detector Configuration
+Edit the global constants in `fart_detector.py`:
 ```python
-MODEL_PATH = 'yamnet_model/yamnet_fp16.tflite'  # FP16 (recommended)
-# or
-MODEL_PATH = 'yamnet_model/yamnet_int8.tflite'  # INT8 (maximum performance)
+# Audio settings
+DEVICE_SAMPLE_RATE = 48000  # Audio sample rate
+YAMNET_SAMPLE_RATE = 16000  # YAMNet model sample rate
+DURATION = 1.0  # Recording duration in seconds
+DETECTION_THRESHOLD = 0.003  # Detection sensitivity (lower = more sensitive)
+
+# Motor settings (optional)
+MOTOR_ENABLED = True  # Enable motor response
+MOTOR_DRIVE_STEPS = 10  # Steps to drive after detection
 ```
 
-### 3. **Other Optimizations**
-- **Reduce audio chunk size** (adjust `DURATION` in code)
-- **Lower detection threshold** (adjust `DETECTION_THRESHOLD`)
-- **Use stereo microphones** for better detection reliability
+### Farter Robot Configuration
+Edit the configuration variables in `main_farter.py`:
+```python
+# Sound settings
+MP3_DIR = os.path.expanduser("~/farts/*.mp3")  # Directory with MP3 files
+VOLUME = 10  # Playback volume (0–32768)
+SLEEP_BETWEEN_SOUNDS = (2, 8)  # Random interval between sounds (seconds)
+
+# Movement settings
+MOTOR_SPEED_RANGE = (-500, 500)  # Random motor speed range (min, max)
+MOTOR_DURATION = (1, 5)  # Random movement duration (seconds)
+SLEEP_BETWEEN_MOVEMENTS = (1, 5)  # Random interval between movements (seconds)
+```
+
+## How It Works
+
+### Fart Detector
+The detector uses machine learning to identify fart sounds:
+1. **Audio Capture**: Continuously records from stereo microphones
+2. **Direction Finding**: Uses time-difference-of-arrival (TDOA) to determine sound direction
+3. **Sound Classification**: YAMNet model analyzes audio for fart sounds
+4. **Motor Response**: Robot drives toward detected fart sounds
+5. **Recording**: Optionally saves audio recordings for analysis
+
+### Farter Robot Movement
+The robot performs simple random movements:
+- **Left Motor Speed**: Random value between -500 and 500
+- **Right Motor Speed**: Random value between -500 and 500  
+- **Movement Duration**: Random time between 1 and 5 seconds
+- **Movement Interval**: Random pause between 1 and 5 seconds
+
+This creates unpredictable driving patterns including:
+- Forward/backward movement
+- Left/right turns
+- Spinning in place
+- Curved paths
 
 ## Project Structure
 
@@ -120,47 +170,40 @@ MODEL_PATH = 'yamnet_model/yamnet_int8.tflite'  # INT8 (maximum performance)
 geekcon-rpi-fart/
 ├── README.md
 ├── requirements.txt
-├── fart_detector.py
-└── yamnet_model/
+├── main_farter.py          # Main farter robot program
+├── fart_detector.py        # Original fart detection system
+├── motor_control.py        # Motor controller interface
+├── logger_utils.py         # Logging utilities
+└── yamnet_model/           # YAMNet model files
     ├── saved_model.pb
     ├── yamnet_class_map.csv
     └── variables/
 ```
 
-## YAMNet Model
+## Safety Notes
 
-The project uses the pre-trained YAMNet model:
-- **YAMNet**: A powerful audio classification model from Google
-- **Classes**: Can detect 521 different sound classes
-- **Fart Detection**: Looks for "Fart" class (index 55) with case-insensitive matching
-- **Input**: 16kHz mono audio
-- **Output**: Confidence scores for all 521 classes
+- The robot moves randomly and may bump into objects
+- Ensure adequate space for movement
+- Supervise operation, especially around pets or children
+- Stop the robot immediately if it behaves unexpectedly
 
 ## Troubleshooting
 
-### Installation Issues
-- **TensorFlow Installation**: Use `tensorflow-aarch64` for ARM64 Raspberry Pi
-- **NumPy Compatibility**: Pin to NumPy 1.x to avoid TensorFlow conflicts
-- **Dependency Conflicts**: Use `--no-deps` flag with uv pip install
-- **Virtual Environment**: Always activate `.venv` before running
+### Fart Detector Issues
+- **No audio input**: Check microphone connection and permissions
+- **Low detection accuracy**: Adjust `DETECTION_THRESHOLD` in configuration
+- **Motor not responding**: Check UART connection and motor controller power
+- **Audio device errors**: Run `arecord -l` to list available devices
 
-### Audio Issues
-- Ensure USB microphone is properly connected
-- Check audio device permissions: `sudo usermod -a -G audio $USER`
-- Verify ALSA configuration: `arecord -l`
-- Test microphone: `arecord -D hw:1,0 -f cd -t wav test.wav`
+### Farter Robot Issues
+- **No MP3 files found**: Ensure MP3 files are in `~/farts/` directory
+- **Audio not playing**: Install mpg123: `sudo apt install mpg123`
+- **Motor controller not responding**: Check UART connection (`/dev/serial0`)
 
-### Performance Issues
-- Monitor CPU usage during detection
-- Adjust sample rate if needed (16kHz is optimal for YAMNet)
-- Ensure adequate cooling for Raspberry Pi 4
-- Close unnecessary applications to free up resources
-
-### YAMNet Model Issues
-- Verify model files are in `yamnet_model/` directory
-- Check CSV file path: `yamnet_model/yamnet_class_map.csv`
-- Ensure model loads without errors
-- Test with known audio samples first
+### General Issues
+- **Permission denied on serial port**: Add user to dialout group: `sudo usermod -a -G dialout $USER`
+- **Audio device permissions**: Check audio group membership: `sudo usermod -a -G audio $USER`
+- **Dependency conflicts**: Use `--no-deps` flag with uv pip install
 
 ## Contributing
 
@@ -177,4 +220,4 @@ This project is licensed under the MIT License - see the LICENSE file for detail
 
 - Built for GeekCon 2024
 - Optimized for Raspberry Pi 4
-- Uses TensorFlow for machine learning
+- Uses motor control and audio playback for autonomous robot behavior
